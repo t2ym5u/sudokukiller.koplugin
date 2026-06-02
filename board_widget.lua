@@ -1,5 +1,6 @@
 local Blitbuffer  = require("ffi/blitbuffer")
 local Font        = require("ui/font")
+local Geom        = require("ui/geometry")
 local RenderText  = require("ui/rendertext")
 local Size        = require("ui/size")
 
@@ -49,7 +50,7 @@ function KillerSudokuBoardWidget:paintTo(bb, x, y)
     local n        = self.n
     local box_rows = self.box_rows
     local box_cols = self.box_cols
-    self.paint_rect = require("ui/geometry"):new{ x = x, y = y, w = self.dimen.w, h = self.dimen.h }
+    self.paint_rect = Geom:new{ x = x, y = y, w = self.dimen.w, h = self.dimen.h }
     local cell = self.dimen.w / n
 
     bb:paintRect(x, y, self.dimen.w, self.dimen.h, Blitbuffer.COLOR_WHITE)
