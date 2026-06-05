@@ -4,29 +4,21 @@ local Geom        = require("ui/geometry")
 local RenderText  = require("ui/rendertext")
 local Size        = require("ui/size")
 
-local common           = require("base_board_widget")
+local _dir = debug.getinfo(1, "S").source:sub(2):match("(.*[/\\])") or "./"
+local function lrequire_common(name)
+    local key = _dir .. "common/" .. name
+    if not package.loaded[key] then
+        package.loaded[key] = assert(loadfile(_dir .. "common/" .. name .. ".lua"))()
+    end
+    return package.loaded[key]
+end
+
+local common           = lrequire_common("base_board_widget")
 local BaseBoardWidget  = common.BaseBoardWidget
 local drawLine         = common.drawLine
 local drawDiagonalLine = common.drawDiagonalLine
 
-local DASH_ON  = 3
-local DASH_OFF = 3
-
-local function drawDashedLine(bb, x, y, length, horizontal, color)
-    color = color or Blitbuffer.COLOR_BLACK
-    local pos = 0
-    while pos < length do
-        local seg = math.min(DASH_ON, length - pos)
-        if seg > 0 then
-            if horizontal then
-                bb:paintRect(x + pos, y, seg, 1, color)
-            else
-                bb:paintRect(x, y + pos, 1, seg, color)
-            end
-        end
-        pos = pos + DASH_ON + DASH_OFF
-    end
-end
+local CAGE_BORDER_COLOR = Blitbuffer.COLOR_GRAY_E
 
 -- ---------------------------------------------------------------------------
 -- KillerSudokuBoardWidget
@@ -36,13 +28,36 @@ local KillerSudokuBoardWidget = BaseBoardWidget:extend{
     board = nil,
 }
 
--- Extend base init to add cage sum label font
+-- Extend base init to add cage sum label font and re-fit number font
 function KillerSudokuBoardWidget:init()
     BaseBoardWidget.init(self)
-    local cell_size    = self.size / self.n
-    local sum_font_size = math.max(8, math.floor(cell_size * 0.28))
+    local cell = self.size / self.n
+
+    -- Cage sum label: small font in top-left corner of each cage cell
+    local sum_font_size   = math.max(6, math.floor(cell * 0.18))
     self.cage_sum_face    = Font:getFace("smallinfofont", sum_font_size)
-    self.cage_sum_padding = math.max(1, math.floor(cell_size / 12))
+    self.cage_sum_padding = math.max(1, math.floor(cell / 14))
+    local sum_reserve     = self.cage_sum_padding + self.cage_sum_face.size
+
+    -- Re-fit number font into the reduced height below the cage sum label
+    local padding = self.number_cell_padding
+    local safety  = math.max(1, math.floor(cell / 20))
+    local max_w   = math.max(1, math.floor(cell - 2 * padding - safety))
+    -- 65% of available height: leaves visible margin between number and cage sum
+    local max_h   = math.max(1, math.floor((cell - sum_reserve) * 0.65))
+    local size    = math.max(28, math.floor(self.size / 14))
+    while size > 10 do
+        local face = Font:getFace("cfont", size)
+        local m    = RenderText:sizeUtf8Text(0, max_w, face, "8", true, false)
+        local h    = m.y_top + m.y_bottom  -- ascender + descender = total glyph height
+        if m.x <= max_w and h <= max_h then
+            local final_size = math.max(10, size - 3)
+            self.number_face      = Font:getFace("cfont", final_size)
+            self.number_face_size = final_size
+            break
+        end
+        size = size - 1
+    end
 end
 
 function KillerSudokuBoardWidget:paintTo(bb, x, y)
@@ -60,34 +75,39 @@ function KillerSudokuBoardWidget:paintTo(bb, x, y)
     bb:paintRect(x, y + (sel_row - 1) * cell, self.dimen.w, cell, Blitbuffer.COLOR_GRAY_D)
     bb:paintRect(x + (sel_col - 1) * cell, y + (sel_row - 1) * cell, cell, cell, Blitbuffer.COLOR_GRAY)
 
-    for i = 0, n do
-        local v_thick = (i % box_cols == 0) and Size.line.thick or Size.line.thin
-        local h_thick = (i % box_rows == 0) and Size.line.thick or Size.line.thin
-        drawLine(bb, x + math.floor(i * cell), y, v_thick, self.dimen.h, Blitbuffer.COLOR_BLACK)
-        drawLine(bb, x, y + math.floor(i * cell), self.dimen.w, h_thick, Blitbuffer.COLOR_BLACK)
-    end
-
-    if self.board.cages and #self.board.cages > 0 then
-        local border_color = Blitbuffer.COLOR_BLACK
-        for row = 1, n - 1 do
+    -- Interior horizontal lines: gray within a cage, black between cages
+    for row = 1, n - 1 do
+        if row % box_rows ~= 0 then
             for col = 1, n do
-                if self.board:isCageBoundary(row, col, row + 1, col) then
-                    drawDashedLine(bb,
-                        math.floor(x + (col - 1) * cell),
-                        math.floor(y + row * cell),
-                        math.floor(cell), true, border_color)
-                end
+                local x0    = math.floor(x + (col - 1) * cell)
+                local x1    = math.floor(x + col * cell)
+                local color = self.board:isCageBoundary(row, col, row + 1, col)
+                    and Blitbuffer.COLOR_BLACK or CAGE_BORDER_COLOR
+                drawLine(bb, x0, math.floor(y + row * cell), x1 - x0, Size.line.thin, color)
             end
         end
-        for row = 1, n do
-            for col = 1, n - 1 do
-                if self.board:isCageBoundary(row, col, row, col + 1) then
-                    drawDashedLine(bb,
-                        math.floor(x + col * cell),
-                        math.floor(y + (row - 1) * cell),
-                        math.floor(cell), false, border_color)
-                end
+    end
+
+    -- Interior vertical lines: gray within a cage, black between cages
+    for col = 1, n - 1 do
+        if col % box_cols ~= 0 then
+            for row = 1, n do
+                local y0    = math.floor(y + (row - 1) * cell)
+                local y1    = math.floor(y + row * cell)
+                local color = self.board:isCageBoundary(row, col, row, col + 1)
+                    and Blitbuffer.COLOR_BLACK or CAGE_BORDER_COLOR
+                drawLine(bb, math.floor(x + col * cell), y0, Size.line.thin, y1 - y0, color)
             end
+        end
+    end
+
+    -- Box boundaries and outer border (thick black, drawn on top)
+    for i = 0, n do
+        if i % box_cols == 0 then
+            drawLine(bb, x + math.floor(i * cell), y, Size.line.thick, self.dimen.h, Blitbuffer.COLOR_BLACK)
+        end
+        if i % box_rows == 0 then
+            drawLine(bb, x, y + math.floor(i * cell), self.dimen.w, Size.line.thick, Blitbuffer.COLOR_BLACK)
         end
     end
 

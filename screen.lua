@@ -1,3 +1,19 @@
+local _dir = debug.getinfo(1, "S").source:sub(2):match("(.*[/\\])") or "./"
+local function lrequire(name)
+    local key = _dir .. name
+    if not package.loaded[key] then
+        package.loaded[key] = assert(loadfile(_dir .. name .. ".lua"))()
+    end
+    return package.loaded[key]
+end
+local function lrequire_common(name)
+    local key = _dir .. "common/" .. name
+    if not package.loaded[key] then
+        package.loaded[key] = assert(loadfile(_dir .. "common/" .. name .. ".lua"))()
+    end
+    return package.loaded[key]
+end
+
 local ButtonTable    = require("ui/widget/buttontable")
 local Device         = require("device")
 local FrameContainer = require("ui/widget/container/framecontainer")
@@ -11,9 +27,9 @@ local VerticalSpan   = require("ui/widget/verticalspan")
 local _              = require("gettext")
 local T              = require("ffi/util").template
 
-local KillerSudokuBoardWidget = require("board_widget")
+local KillerSudokuBoardWidget = lrequire("board_widget")
 
-local common          = require("base_screen")
+local common          = lrequire_common("base_screen")
 local BaseScreen      = common.BaseScreen
 local DIFFICULTY_ORDER  = common.DIFFICULTY_ORDER
 local DIFFICULTY_LABELS = common.DIFFICULTY_LABELS
@@ -48,9 +64,9 @@ function KillerSudokuScreen:buildLayout()
     }
 
     local board_frame_size  = self.board_widget.size + (Size.padding.large + Size.margin.default) * 2
-    local right_panel_width = sw - board_frame_size - Size.span.horizontal_large
+    local right_panel_width = sw - board_frame_size - Size.span.horizontal_default
     local button_width = is_landscape
-        and math.max(right_panel_width - Size.span.horizontal_large, 100)
+        and math.max(right_panel_width - Size.span.horizontal_default, 100)
         or  math.floor(sw * 0.9)
     local keypad_width = is_landscape and button_width or math.floor(sw * 0.75)
 
@@ -124,7 +140,7 @@ function KillerSudokuScreen:buildLayout()
         self.layout = HorizontalGroup:new{
             align = "center",
             board_frame,
-            HorizontalSpan:new{ width = Size.span.horizontal_large },
+            HorizontalSpan:new{ width = Size.span.horizontal_default },
             right_panel,
         }
     else
@@ -179,7 +195,7 @@ function KillerSudokuScreen:openDifficultyMenu()
         return true
     end
     local items = {}
-    for _, level in ipairs(DIFFICULTY_ORDER) do
+    for __, level in ipairs(DIFFICULTY_ORDER) do
         local hint = DIFFICULTY_CAGE_HINT[level] or ""
         items[#items + 1] = {
             text     = T(_("%1 (%2 cages)"), DIFFICULTY_LABELS[level] or level, hint),
