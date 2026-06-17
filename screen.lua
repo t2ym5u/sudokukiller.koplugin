@@ -46,6 +46,29 @@ local DIFFICULTY_CAGE_HINT = {
 -- KillerSudokuScreen
 -- ---------------------------------------------------------------------------
 
+local GAME_RULES_EN = _([[
+Killer Sudoku — Rules
+
+Standard Sudoku rules apply:
+• Fill the 9×9 grid with 1–9; each row, column, and 3×3 box must contain each digit exactly once.
+
+Cage constraint:
+• Cells are grouped into "cages" outlined with dashed borders, each labelled with a target sum.
+• The digits in each cage must sum exactly to that value.
+• No digit may be repeated within a cage.]])
+
+local GAME_RULES_FR = [[
+Sudoku Meurtrier — Règles
+
+Les règles du Sudoku classique s'appliquent :
+• Remplissez la grille avec les chiffres 1 à 9 ; chaque ligne, colonne et carré 3×3 doit contenir chaque chiffre exactement une fois.
+
+Contrainte des cages :
+• Les cases sont regroupées en "cages" délimitées par des pointillés, chacune portant une somme cible.
+• Les chiffres de chaque cage doivent sommer exactement à cette valeur.
+• Un chiffre ne peut pas être répété au sein d'une même cage.
+]]
+
 local KillerSudokuScreen = BaseScreen:extend{}
 
 function KillerSudokuScreen:buildLayout()
@@ -81,6 +104,7 @@ function KillerSudokuScreen:buildLayout()
                   callback = function() self:openDifficultyMenu() end },
                 { id = "show_result",         text = _("Show result"),
                   callback = function() self:toggleSolution() end },
+                self:makeRulesButtonConfig(GAME_RULES_EN, GAME_RULES_FR),
                 { text = _("Close"),          callback = function()
                     self:onClose()
                     UIManager:close(self)
