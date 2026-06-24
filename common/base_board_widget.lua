@@ -28,6 +28,30 @@ local function drawDiagonalLine(bb, x, y, length, dx, dy, color, thickness)
     end
 end
 
+local function drawDashedLine(bb, x, y, w, h, color, dash, gap)
+    dash = math.max(1, dash or 5)
+    gap  = math.max(1, gap  or 3)
+    if w >= h then
+        local pos = x
+        local on  = true
+        while pos < x + w do
+            local seg = math.min(on and dash or gap, x + w - pos)
+            if on then bb:paintRect(math.floor(pos), y, math.max(1, math.floor(seg)), h, color) end
+            pos = pos + seg
+            on  = not on
+        end
+    else
+        local pos = y
+        local on  = true
+        while pos < y + h do
+            local seg = math.min(on and dash or gap, y + h - pos)
+            if on then bb:paintRect(x, math.floor(pos), w, math.max(1, math.floor(seg)), color) end
+            pos = pos + seg
+            on  = not on
+        end
+    end
+end
+
 -- ---------------------------------------------------------------------------
 -- BaseBoardWidget — shared init / tap / refresh logic
 --
@@ -160,4 +184,5 @@ return {
     BaseBoardWidget  = BaseBoardWidget,
     drawLine         = drawLine,
     drawDiagonalLine = drawDiagonalLine,
+    drawDashedLine   = drawDashedLine,
 }

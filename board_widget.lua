@@ -17,6 +17,7 @@ local common           = lrequire_common("base_board_widget")
 local BaseBoardWidget  = common.BaseBoardWidget
 local drawLine         = common.drawLine
 local drawDiagonalLine = common.drawDiagonalLine
+local drawDashedLine   = common.drawDashedLine
 
 local CAGE_BORDER_COLOR = Blitbuffer.COLOR_GRAY_E
 
@@ -31,6 +32,10 @@ local KillerSudokuBoardWidget = BaseBoardWidget:extend{
 -- Extend base init to add cage sum label font and re-fit number font
 function KillerSudokuBoardWidget:init()
     BaseBoardWidget.init(self)
+
+    -- Save full-cell number font for single-cell cage ("given") display
+    self.given_face = self.number_face
+
     local cell = self.size / self.n
 
     -- Cage sum label: small font in top-left corner of each cage cell
@@ -101,33 +106,95 @@ function KillerSudokuBoardWidget:paintTo(bb, x, y)
         end
     end
 
-    -- Box boundaries and outer border (thick black, drawn on top)
+    -- Box boundaries: outer border solid thick, inner separators dashed gray
+    local dash = math.max(3, math.floor(cell * 0.15))
+    local gap  = math.max(2, math.floor(cell * 0.10))
     for i = 0, n do
         if i % box_cols == 0 then
-            drawLine(bb, x + math.floor(i * cell), y, Size.line.thick, self.dimen.h, Blitbuffer.COLOR_BLACK)
+            local lx = x + math.floor(i * cell)
+            if i == 0 or i == n then
+                drawLine(bb, lx, y, Size.line.thick, self.dimen.h, Blitbuffer.COLOR_BLACK)
+            else
+                drawDashedLine(bb, lx, y, Size.line.thin, self.dimen.h, Blitbuffer.COLOR_GRAY_9, dash, gap)
+            end
         end
         if i % box_rows == 0 then
-            drawLine(bb, x, y + math.floor(i * cell), self.dimen.w, Size.line.thick, Blitbuffer.COLOR_BLACK)
+            local ly = y + math.floor(i * cell)
+            if i == 0 or i == n then
+                drawLine(bb, x, ly, self.dimen.w, Size.line.thick, Blitbuffer.COLOR_BLACK)
+            else
+                drawDashedLine(bb, x, ly, self.dimen.w, Size.line.thin, Blitbuffer.COLOR_GRAY_9, dash, gap)
+            end
         end
     end
+
+    -- Cage boundaries that coincide with box edges: draw solid black on top of dashes
+    for row = 1, n - 1 do
+        if row % box_rows == 0 then
+            local ly = math.floor(y + row * cell)
+            for col = 1, n do
+                local id1 = self.board.cell_cage[row][col]
+                local id2 = self.board.cell_cage[row + 1][col]
+                if id1 ~= id2 then
+                    local x0 = math.floor(x + (col - 1) * cell)
+                    local x1 = math.floor(x + col * cell)
+                    drawLine(bb, x0, ly, x1 - x0, Size.line.thin, Blitbuffer.COLOR_BLACK)
+                end
+            end
+        end
+    end
+    for col = 1, n - 1 do
+        if col % box_cols == 0 then
+            local lx = math.floor(x + col * cell)
+            for row = 1, n do
+                local id1 = self.board.cell_cage[row][col]
+                local id2 = self.board.cell_cage[row][col + 1]
+                if id1 ~= id2 then
+                    local y0 = math.floor(y + (row - 1) * cell)
+                    local y1 = math.floor(y + row * cell)
+                    drawLine(bb, lx, y0, Size.line.thin, y1 - y0, Blitbuffer.COLOR_BLACK)
+                end
+            end
+        end
+    end
+
+    local sum_reserve  = self.cage_sum_padding + self.cage_sum_face.size
+    local cell_padding = self.number_cell_padding or 0
 
     for row = 1, n do
         for col = 1, n do
             local value = self.board:getDisplayValue(row, col)
             if value then
-                local cell_x = x + (col - 1) * cell
-                local cell_y = y + (row - 1) * cell
-                local color  = self.board:isShowingSolution() and Blitbuffer.COLOR_GRAY_4 or Blitbuffer.COLOR_GRAY_2
-                if self.board:isConflict(row, col) then color = Blitbuffer.COLOR_RED end
-                local text         = tostring(value)
-                local cell_padding = self.number_cell_padding or 0
-                local sum_reserve  = self.cage_sum_padding + self.cage_sum_face.size
+                local cell_x   = x + (col - 1) * cell
+                local cell_y   = y + (row - 1) * cell
+                local is_given = self.board:isGiven(row, col)
+                local text     = tostring(value)
+
+                local color
+                if self.board:isConflict(row, col) then
+                    color = Blitbuffer.COLOR_RED
+                elseif is_given then
+                    color = Blitbuffer.COLOR_BLACK
+                elseif self.board:isShowingSolution() then
+                    color = Blitbuffer.COLOR_GRAY_4
+                else
+                    color = Blitbuffer.COLOR_GRAY_2
+                end
+
+                local face         = is_given and self.given_face or self.number_face
                 local cell_inner_w = math.max(1, math.floor(cell - 2 * cell_padding))
-                local metrics      = RenderText:sizeUtf8Text(0, cell_inner_w, self.number_face, text, true, false)
-                local avail_h      = math.max(1, cell - sum_reserve - cell_padding)
-                local baseline     = cell_y + sum_reserve + math.floor((avail_h + metrics.y_top - metrics.y_bottom) / 2)
-                local text_x       = cell_x + cell_padding + math.floor((cell_inner_w - metrics.x) / 2)
-                RenderText:renderUtf8Text(bb, text_x, baseline, self.number_face, text, true, false, color)
+                local metrics      = RenderText:sizeUtf8Text(0, cell_inner_w, face, text, true, false)
+                local avail_h, baseline
+                if is_given then
+                    avail_h  = math.max(1, cell - 2 * cell_padding)
+                    baseline = cell_y + cell_padding + math.floor((avail_h + metrics.y_top - metrics.y_bottom) / 2)
+                else
+                    avail_h  = math.max(1, cell - sum_reserve - cell_padding)
+                    baseline = cell_y + sum_reserve + math.floor((avail_h + metrics.y_top - metrics.y_bottom) / 2)
+                end
+                local text_x = cell_x + cell_padding + math.floor((cell_inner_w - metrics.x) / 2)
+                RenderText:renderUtf8Text(bb, text_x, baseline, face, text, true, false, color)
+
                 if self.board:hasWrongMark(row, col) then
                     local padding   = math.max(1, math.floor(cell / 12))
                     local diag_len  = math.max(0, math.floor(cell - padding * 2))
@@ -161,16 +228,19 @@ function KillerSudokuBoardWidget:paintTo(bb, x, y)
         end
     end
 
+    -- Cage sum labels (single-cell cages show value in full — no label needed)
     if self.board.cages and #self.board.cages > 0 then
         local pad = self.cage_sum_padding or 1
         for _, cage in ipairs(self.board.cages) do
-            local label_cell = self.board:getCageLabelCell(cage)
-            if label_cell then
-                local label_text = tostring(cage.sum)
-                local cell_x     = math.floor(x + (label_cell.c - 1) * cell)
-                local cell_y     = math.floor(y + (label_cell.r - 1) * cell)
-                local baseline   = cell_y + pad + self.cage_sum_face.size
-                RenderText:renderUtf8Text(bb, cell_x + pad, baseline, self.cage_sum_face, label_text, true, false, Blitbuffer.COLOR_BLACK)
+            if #cage.cells > 1 then
+                local label_cell = self.board:getCageLabelCell(cage)
+                if label_cell then
+                    local label_text = tostring(cage.sum)
+                    local cell_x     = math.floor(x + (label_cell.c - 1) * cell)
+                    local cell_y     = math.floor(y + (label_cell.r - 1) * cell)
+                    local baseline   = cell_y + pad + self.cage_sum_face.size
+                    RenderText:renderUtf8Text(bb, cell_x + pad, baseline, self.cage_sum_face, label_text, true, false, Blitbuffer.COLOR_BLACK)
+                end
             end
         end
     end
