@@ -236,6 +236,12 @@ function KillerSudokuBoard:generate(difficulty)
     self.cages           = cages
     self.cell_cage       = cell_cage
     self.user            = emptyGrid(n)
+    for _, cage in ipairs(cages) do
+        if #cage.cells == 1 then
+            local cell = cage.cells[1]
+            self.user[cell.r][cell.c] = solution[cell.r][cell.c]
+        end
+    end
     self.notes           = emptyNotes(n)
     self.wrong_marks     = emptyMarkerGrid(n)
     self.selected        = { row = 1, col = 1 }
@@ -282,8 +288,11 @@ end
 -- Overrides
 -- ---------------------------------------------------------------------------
 
-function KillerSudokuBoard:isGiven()
-    return false
+function KillerSudokuBoard:isGiven(row, col)
+    local cage_id = self.cell_cage[row] and self.cell_cage[row][col] or 0
+    if cage_id == 0 then return false end
+    local cage = self.cages[cage_id]
+    return cage ~= nil and #cage.cells == 1
 end
 
 function KillerSudokuBoard:getWorkingValue(row, col)
