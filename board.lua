@@ -19,6 +19,12 @@ local copyNotes       = grid_utils.copyNotes
 
 local generateSolvedBoard = puzzle_generator.generateSolvedBoard
 
+local bit    = require("bit")
+local band   = bit.band
+local bor    = bit.bor
+local bnot   = bit.bnot
+local lshift = bit.lshift
+
 -- ---------------------------------------------------------------------------
 -- Difficulty configurations
 -- ---------------------------------------------------------------------------
@@ -29,17 +35,88 @@ local CAGE_COUNT_RANGES = {
     easy   = { min = 28, max = 32 },
     medium = { min = 22, max = 27 },
     hard   = { min = 16, max = 21 },
+    expert = { min = 12, max = 16 },
 }
 
 local CAGE_MAX_SIZE = {
     easy   = 3,
     medium = 5,
     hard   = 6,
+    expert = 7,
 }
+
+-- Generation of a cage layout is not guaranteed to yield a puzzle with a
+-- unique solution (cage sums alone are a weak constraint). We retry a bounded
+-- number of times and verify with a budgeted solver, preferring a proven-
+-- unique layout, falling back to an unproven-but-not-disproven one, and
+-- finally to whatever the last attempt produced.
+local CAGE_GEN_MAX_ATTEMPTS = 5
+local CAGE_SOLVER_NODE_BUDGET = 6000
 
 -- ---------------------------------------------------------------------------
 -- Cage generator
 -- ---------------------------------------------------------------------------
+
+-- The no-duplicate-digit growth constraint (below) frequently strands cells
+-- that end up as their own 1-cell cage (an outright given digit), which
+-- dilutes the intended difficulty. Fold each singleton into an adjacent cage
+-- when that doesn't introduce a duplicate digit or exceed max_size.
+local function mergeStraySingletons(cages, solution, n, max_size)
+    local cell_cage = {}
+    for r = 1, n do
+        cell_cage[r] = {}
+        for c = 1, n do cell_cage[r][c] = 0 end
+    end
+    for _, cage in ipairs(cages) do
+        for _, cell in ipairs(cage.cells) do
+            cell_cage[cell.r][cell.c] = cage.id
+        end
+    end
+
+    local dirs = { { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 } }
+    for _, cage in ipairs(cages) do
+        if #cage.cells == 1 and not cage.merged_away then
+            local cell = cage.cells[1]
+            local candidates = {}
+            for _, d in ipairs(dirs) do
+                local nr, nc = cell.r + d[1], cell.c + d[2]
+                if nr >= 1 and nr <= n and nc >= 1 and nc <= n then
+                    local ncage = cages[cell_cage[nr][nc]]
+                    if ncage and ncage ~= cage and not ncage.merged_away and #ncage.cells < max_size then
+                        local v, dup = solution[cell.r][cell.c], false
+                        for _, c2 in ipairs(ncage.cells) do
+                            if solution[c2.r][c2.c] == v then dup = true; break end
+                        end
+                        if not dup then candidates[#candidates + 1] = ncage end
+                    end
+                end
+            end
+            if #candidates > 0 then
+                local target = candidates[math.random(#candidates)]
+                target.cells[#target.cells + 1] = cell
+                target.sum = target.sum + solution[cell.r][cell.c]
+                cage.merged_away = true
+            end
+        end
+    end
+
+    local final_cages = {}
+    for _, cage in ipairs(cages) do
+        if not cage.merged_away then
+            cage.id = #final_cages + 1
+            final_cages[cage.id] = cage
+        end
+    end
+    for r = 1, n do
+        for c = 1, n do cell_cage[r][c] = 0 end
+    end
+    for _, cage in ipairs(final_cages) do
+        for _, cell in ipairs(cage.cells) do
+            cell_cage[cell.r][cell.c] = cage.id
+        end
+    end
+    return final_cages, cell_cage
+end
 
 local function generateCages(solution, difficulty, n)
     local range        = CAGE_COUNT_RANGES[difficulty] or CAGE_COUNT_RANGES.medium
@@ -84,6 +161,8 @@ local function generateCages(solution, difficulty, n)
                 cells = { { r = seed.r, c = seed.c } },
                 sum   = solution[seed.r][seed.c],
             }
+            -- Killer-sudoku cages must not contain the same digit twice.
+            local used_digits = { [solution[seed.r][seed.c]] = true }
             assigned[seed.r][seed.c] = true
             unassigned_count = unassigned_count - 1
 
@@ -98,12 +177,19 @@ local function generateCages(solution, difficulty, n)
 
             local frontier = unassignedNeighbors(seed.r, seed.c)
             while #cage.cells < target_size and #frontier > 0 do
-                local idx       = math.random(#frontier)
+                -- Only grow into a frontier cell whose digit isn't already in the cage.
+                local valid_idxs = {}
+                for fi, f in ipairs(frontier) do
+                    if not used_digits[solution[f.r][f.c]] then valid_idxs[#valid_idxs + 1] = fi end
+                end
+                if #valid_idxs == 0 then break end
+                local idx       = valid_idxs[math.random(#valid_idxs)]
                 local candidate = frontier[idx]
                 table.remove(frontier, idx)
                 if not assigned[candidate.r][candidate.c] then
                     cage.cells[#cage.cells + 1] = candidate
                     cage.sum = cage.sum + solution[candidate.r][candidate.c]
+                    used_digits[solution[candidate.r][candidate.c]] = true
                     assigned[candidate.r][candidate.c] = true
                     unassigned_count = unassigned_count - 1
                     for _, nb in ipairs(unassignedNeighbors(candidate.r, candidate.c)) do
@@ -133,17 +219,156 @@ local function generateCages(solution, difficulty, n)
         end
     end
 
-    local cell_cage = {}
-    for r = 1, n do
-        cell_cage[r] = {}
-        for c = 1, n do cell_cage[r][c] = 0 end
+    return mergeStraySingletons(cages, solution, n, max_size)
+end
+
+-- ---------------------------------------------------------------------------
+-- Cage-sum solver: counts solutions (up to `limit`) of the sudoku+cage-sum
+-- instance, using MRV cell ordering and cage-sum feasibility pruning to keep
+-- the search tractable. Returns (solutions_found, exhausted, nodes_visited);
+-- exhausted = true means node_budget was hit before the search concluded, so
+-- the solutions count is not a proof (fewer solutions may remain unexplored).
+-- ---------------------------------------------------------------------------
+
+local FULL_DIGIT_MASK = 0x3FE -- bits 1..9
+
+local function minMaxSum(avail_mask, k)
+    if k == 0 then return 0, 0 end
+    local avail = {}
+    for v = 1, 9 do
+        if band(avail_mask, lshift(1, v)) ~= 0 then avail[#avail + 1] = v end
     end
+    if #avail < k then return nil, nil end
+    table.sort(avail)
+    local mn, mx = 0, 0
+    for i = 1, k do mn = mn + avail[i] end
+    for i = #avail - k + 1, #avail do mx = mx + avail[i] end
+    return mn, mx
+end
+
+local function countCageSolutions(cell_cage, cages, n, box_rows, box_cols, limit, node_budget)
+    local row_used, col_used, box_used = {}, {}, {}
+    for i = 1, n do row_used[i] = 0; col_used[i] = 0 end
+    local num_box_cols = n / box_cols
+    for i = 1, (n / box_rows) * num_box_cols do box_used[i] = 0 end
+    local grid = {}
+    for r = 1, n do grid[r] = {}; for c = 1, n do grid[r][c] = 0 end end
+    local cage_filled_sum, cage_filled_count, cage_used_mask = {}, {}, {}
     for _, cage in ipairs(cages) do
-        for _, cell in ipairs(cage.cells) do
-            cell_cage[cell.r][cell.c] = cage.id
+        cage_filled_sum[cage.id]   = 0
+        cage_filled_count[cage.id] = 0
+        cage_used_mask[cage.id]    = 0
+    end
+
+    local function boxIndex(r, c)
+        return math.floor((r - 1) / box_rows) * num_box_cols + math.floor((c - 1) / box_cols) + 1
+    end
+
+    local empties = {}
+    for r = 1, n do for c = 1, n do empties[#empties + 1] = { r = r, c = c } end end
+    local num_empty = #empties
+
+    local solutions, nodes, exhausted = 0, 0, false
+
+    local function candidatesFor(r, c)
+        local used = bor(bor(row_used[r], col_used[c]), box_used[boxIndex(r, c)])
+        local cage_id = cell_cage[r][c]
+        local cage = cages[cage_id]
+        local remaining_after = #cage.cells - cage_filled_count[cage_id] - 1
+        local target_remaining = cage.sum - cage_filled_sum[cage_id]
+        local cage_used = cage_used_mask[cage_id]
+        local cands = {}
+        for v = 1, 9 do
+            local vbit = lshift(1, v)
+            if band(used, vbit) == 0 and band(cage_used, vbit) == 0 then
+                local rem_sum = target_remaining - v
+                if rem_sum >= 0 then
+                    if remaining_after == 0 then
+                        if rem_sum == 0 then cands[#cands + 1] = v end
+                    else
+                        local avail_mask = band(bnot(bor(cage_used, vbit)), FULL_DIGIT_MASK)
+                        local mn, mx = minMaxSum(avail_mask, remaining_after)
+                        if mn and rem_sum >= mn and rem_sum <= mx then
+                            cands[#cands + 1] = v
+                        end
+                    end
+                end
+            end
+        end
+        return cands
+    end
+
+    local function search(depth)
+        if solutions >= limit or exhausted then return end
+        nodes = nodes + 1
+        if nodes > node_budget then exhausted = true; return end
+        if depth > num_empty then solutions = solutions + 1; return end
+        local best_idx, best_cands, best_len = nil, nil, 1000
+        for i, cell in ipairs(empties) do
+            if grid[cell.r][cell.c] == 0 then
+                local cands = candidatesFor(cell.r, cell.c)
+                if #cands < best_len then
+                    best_len   = #cands
+                    best_cands = cands
+                    best_idx   = i
+                    if best_len <= 1 then break end
+                end
+            end
+        end
+        if best_idx == nil then solutions = solutions + 1; return end
+        if best_len == 0 then return end
+        local cell = empties[best_idx]
+        local r, c = cell.r, cell.c
+        local b = boxIndex(r, c)
+        local cage_id = cell_cage[r][c]
+        for _, v in ipairs(best_cands) do
+            local vbit = lshift(1, v)
+            grid[r][c] = v
+            row_used[r] = bor(row_used[r], vbit)
+            col_used[c] = bor(col_used[c], vbit)
+            box_used[b] = bor(box_used[b], vbit)
+            cage_filled_sum[cage_id]   = cage_filled_sum[cage_id] + v
+            cage_filled_count[cage_id] = cage_filled_count[cage_id] + 1
+            cage_used_mask[cage_id]    = bor(cage_used_mask[cage_id], vbit)
+            search(depth + 1)
+            grid[r][c] = 0
+            row_used[r] = band(row_used[r], bnot(vbit))
+            col_used[c] = band(col_used[c], bnot(vbit))
+            box_used[b] = band(box_used[b], bnot(vbit))
+            cage_filled_sum[cage_id]   = cage_filled_sum[cage_id] - v
+            cage_filled_count[cage_id] = cage_filled_count[cage_id] - 1
+            cage_used_mask[cage_id]    = band(cage_used_mask[cage_id], bnot(vbit))
+            if solutions >= limit or exhausted then return end
         end
     end
-    return cages, cell_cage
+    search(1)
+    return solutions, exhausted, nodes
+end
+
+-- Generate a cage layout for `solution`, retrying up to CAGE_GEN_MAX_ATTEMPTS
+-- times to find one with a provably unique solution. Cage-sum constraints
+-- alone are weak, so most random layouts are ambiguous; we prefer (in order)
+-- a proven-unique layout, an unproven-but-not-disproven one (solver ran out
+-- of budget before finding a 2nd solution), and finally whatever the last
+-- attempt produced.
+local function generateVerifiedCages(solution, difficulty, n, box_rows, box_cols)
+    local fallback_cages, fallback_cell_cage
+    local fallback_is_inconclusive = false
+    for attempt = 1, CAGE_GEN_MAX_ATTEMPTS do
+        local cages, cell_cage = generateCages(solution, difficulty, n)
+        local solutions, exhausted = countCageSolutions(
+            cell_cage, cages, n, box_rows, box_cols, 2, CAGE_SOLVER_NODE_BUDGET)
+        if not exhausted and solutions == 1 then
+            return cages, cell_cage
+        end
+        if exhausted and not fallback_is_inconclusive then
+            fallback_cages, fallback_cell_cage = cages, cell_cage
+            fallback_is_inconclusive = true
+        elseif not fallback_cages then
+            fallback_cages, fallback_cell_cage = cages, cell_cage
+        end
+    end
+    return fallback_cages, fallback_cell_cage
 end
 
 -- ---------------------------------------------------------------------------
@@ -231,7 +456,7 @@ function KillerSudokuBoard:generate(difficulty)
     self.difficulty = difficulty or self.difficulty or DEFAULT_DIFFICULTY
     local n, box_rows, box_cols = self.n, self.box_rows, self.box_cols
     local solution = generateSolvedBoard(n, box_rows, box_cols)
-    local cages, cell_cage = generateCages(solution, self.difficulty, n)
+    local cages, cell_cage = generateVerifiedCages(solution, self.difficulty, n, box_rows, box_cols)
     self.solution        = solution
     self.cages           = cages
     self.cell_cage       = cell_cage
