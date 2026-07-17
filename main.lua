@@ -15,6 +15,8 @@ local UIManager       = require("ui/uimanager")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local _               = require("gettext")
 
+require("i18n").extend(lrequire("i18n_fr"))
+
 local board_module       = lrequire("board")
 local KillerSudokuBoard  = board_module.KillerSudokuBoard
 local DEFAULT_DIFFICULTY = board_module.DEFAULT_DIFFICULTY
