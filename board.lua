@@ -351,7 +351,7 @@ end
 -- a proven-unique layout, an unproven-but-not-disproven one (solver ran out
 -- of budget before finding a 2nd solution), and finally whatever the last
 -- attempt produced.
-local function generateVerifiedCages(solution, difficulty, n, box_rows, box_cols)
+local function generateVerifiedCages(solution, difficulty, n, box_rows, box_cols, on_progress)
     local fallback_cages, fallback_cell_cage
     local fallback_is_inconclusive = false
     for attempt = 1, CAGE_GEN_MAX_ATTEMPTS do
@@ -359,6 +359,7 @@ local function generateVerifiedCages(solution, difficulty, n, box_rows, box_cols
         local solutions, exhausted = countCageSolutions(
             cell_cage, cages, n, box_rows, box_cols, 2, CAGE_SOLVER_NODE_BUDGET)
         if not exhausted and solutions == 1 then
+            if on_progress then on_progress(CAGE_GEN_MAX_ATTEMPTS, CAGE_GEN_MAX_ATTEMPTS) end
             return cages, cell_cage
         end
         if exhausted and not fallback_is_inconclusive then
@@ -367,6 +368,7 @@ local function generateVerifiedCages(solution, difficulty, n, box_rows, box_cols
         elseif not fallback_cages then
             fallback_cages, fallback_cell_cage = cages, cell_cage
         end
+        if on_progress then on_progress(attempt, CAGE_GEN_MAX_ATTEMPTS) end
     end
     return fallback_cages, fallback_cell_cage
 end
@@ -452,11 +454,11 @@ function KillerSudokuBoard:load(state)
     return true
 end
 
-function KillerSudokuBoard:generate(difficulty)
+function KillerSudokuBoard:generate(difficulty, on_progress)
     self.difficulty = difficulty or self.difficulty or DEFAULT_DIFFICULTY
     local n, box_rows, box_cols = self.n, self.box_rows, self.box_cols
     local solution = generateSolvedBoard(n, box_rows, box_cols)
-    local cages, cell_cage = generateVerifiedCages(solution, self.difficulty, n, box_rows, box_cols)
+    local cages, cell_cage = generateVerifiedCages(solution, self.difficulty, n, box_rows, box_cols, on_progress)
     self.solution        = solution
     self.cages           = cages
     self.cell_cage       = cell_cage

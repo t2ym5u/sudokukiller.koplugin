@@ -33,6 +33,7 @@ local common          = lrequire_common("base_screen")
 local BaseScreen      = common.BaseScreen
 local DIFFICULTY_ORDER  = common.DIFFICULTY_ORDER
 local DIFFICULTY_LABELS = common.DIFFICULTY_LABELS
+local generateWithProgress = common.generateWithProgress
 
 local DeviceScreen = Device.screen
 
@@ -186,7 +187,7 @@ function KillerSudokuScreen:openDifficultyMenu()
     local menu
     local function selectDifficulty(level)
         if level ~= self.board.difficulty then
-            self.board:generate(level)
+            generateWithProgress(self.board, level)
             self.plugin:saveState()
             self.board_widget:refresh()
             self:ensureShowButtonState()
