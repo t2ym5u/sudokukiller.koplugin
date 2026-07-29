@@ -94,6 +94,8 @@ function KillerSudokuScreen:buildLayout()
         or  math.floor(sw * 0.9)
     local keypad_width = is_landscape and button_width or math.floor(sw * 0.75)
 
+    self:setStatusTextWidth(is_landscape and button_width or board_frame_size)
+
     -- Title bar with Options menu
     local title_bar = self:buildTitleBar(_("Killer Sudoku"), function()
         return {
@@ -238,10 +240,10 @@ function KillerSudokuScreen:updateStatus(message)
                     cage_partial = cage_partial + v
                 end
             end
-            cage_info = T(_("  ·  Cage: %1/%2 cells, sum %3/%4"),
+            cage_info = T(_("  ·  Cage %1/%2, sum %3/%4"),
                 cage_filled, #cage.cells, cage_partial, cage.sum)
         end
-        status = T(_("Selected: %1,%2  ·  Empty: %3%4"), row, col, remaining, cage_info)
+        status = T(_("%1,%2  ·  %3 empty%4"), row, col, remaining, cage_info)
         if self.board:isShowingSolution() then
             status = status .. "\n" .. _("Result is being shown; editing is disabled.")
         elseif self.board:isSolved() then
