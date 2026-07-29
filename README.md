@@ -41,6 +41,15 @@ Standard Sudoku rules (fill 1–9; no repeats in rows, columns, or 3×3 boxes) p
 | Change difficulty | Tap **Diff** |
 | Show rules | Tap **Rules** |
 
+## Known limitations
+
+Easy and Medium puzzles are generated to be solvable by deduction alone
+(no guessing), but that's verified within a bounded retry budget. In rare
+cases the generator can't find a human-solvable layout in time and falls
+back to a puzzle that's still guaranteed to have a unique solution, just
+not guaranteed to be reachable without some trial and error. Hard and
+Expert are unaffected — guessing is a normal part of solving those tiers.
+
 ## License
 
 GPL-3.0 — see [LICENSE](LICENSE).
