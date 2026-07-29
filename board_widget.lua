@@ -161,14 +161,29 @@ function KillerSudokuBoardWidget:paintTo(bb, x, y)
     local sum_reserve  = self.cage_sum_padding + self.cage_sum_face.size
     local cell_padding = self.number_cell_padding or 0
 
+    -- Only cells that actually display a cage-sum label need the shrunk
+    -- font and reserved top margin; every other cell gets the full-size font.
+    local label_cells = {}
+    if self.board.cages then
+        for _, cage in ipairs(self.board.cages) do
+            if #cage.cells > 1 then
+                local label_cell = self.board:getCageLabelCell(cage)
+                if label_cell then
+                    label_cells[label_cell.r * (n + 1) + label_cell.c] = true
+                end
+            end
+        end
+    end
+
     for row = 1, n do
         for col = 1, n do
             local value = self.board:getDisplayValue(row, col)
             if value then
-                local cell_x   = x + (col - 1) * cell
-                local cell_y   = y + (row - 1) * cell
-                local is_given = self.board:isGiven(row, col)
-                local text     = tostring(value)
+                local cell_x    = x + (col - 1) * cell
+                local cell_y    = y + (row - 1) * cell
+                local is_given  = self.board:isGiven(row, col)
+                local has_label = label_cells[row * (n + 1) + col]
+                local text      = tostring(value)
 
                 local color
                 if self.board:isConflict(row, col) then
@@ -181,16 +196,16 @@ function KillerSudokuBoardWidget:paintTo(bb, x, y)
                     color = Blitbuffer.COLOR_GRAY_2
                 end
 
-                local face         = is_given and self.given_face or self.number_face
+                local face         = has_label and self.number_face or self.given_face
                 local cell_inner_w = math.max(1, math.floor(cell - 2 * cell_padding))
                 local metrics      = RenderText:sizeUtf8Text(0, cell_inner_w, face, text, true, false)
                 local avail_h, baseline
-                if is_given then
-                    avail_h  = math.max(1, cell - 2 * cell_padding)
-                    baseline = cell_y + cell_padding + math.floor((avail_h + metrics.y_top - metrics.y_bottom) / 2)
-                else
+                if has_label then
                     avail_h  = math.max(1, cell - sum_reserve - cell_padding)
                     baseline = cell_y + sum_reserve + math.floor((avail_h + metrics.y_top - metrics.y_bottom) / 2)
+                else
+                    avail_h  = math.max(1, cell - 2 * cell_padding)
+                    baseline = cell_y + cell_padding + math.floor((avail_h + metrics.y_top - metrics.y_bottom) / 2)
                 end
                 local text_x = cell_x + cell_padding + math.floor((cell_inner_w - metrics.x) / 2)
                 RenderText:renderUtf8Text(bb, text_x, baseline, face, text, true, false, color)
