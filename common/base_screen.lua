@@ -7,8 +7,9 @@ local Geom               = require("ui/geometry")
 local InfoMessage        = require("ui/widget/infomessage")
 local InputContainer     = require("ui/widget/container/inputcontainer")
 local ProgressbarDialog  = require("ui/widget/progressbardialog")
+local Size               = require("ui/size")
+local TextBoxWidget      = require("ui/widget/textboxwidget")
 local TextViewer         = require("ui/widget/textviewer")
-local TextWidget         = require("ui/widget/textwidget")
 local TitleBar           = require("ui/widget/titlebar")
 local UIManager          = require("ui/uimanager")
 local VerticalGroup      = require("ui/widget/verticalgroup")
@@ -31,6 +32,20 @@ local _ = setmetatable({ lang = lang }, {
 })
 
 local DeviceScreen = Device.screen
+
+-- status_text sits inside a VerticalGroup/HorizontalGroup that sizes itself
+-- once and caches that size forever (see frontend/ui/widget/verticalgroup.lua),
+-- and buildPortraitLayout()/buildLandscapeLayout() size the rest of the
+-- screen (header/content/footer gaps) assuming this box stays exactly
+-- STATUS_TEXT_LINES tall. So this must stay 1: a taller budget pushes the
+-- total layout past the screen height and the footer keypad gets clipped.
+-- Keeping the box a fixed height (rather than auto-sizing to its text) is
+-- still needed so the cached layout offsets never go stale (see history:
+-- an auto-sized box that grows after the placeholder text is replaced makes
+-- the keypad overlap the overflow instead of the layout making room for it).
+-- height_overflow_show_ellipsis truncates any status line that doesn't fit
+-- in that single line instead of overflowing off-screen.
+local STATUS_TEXT_LINES = 1
 
 -- ---------------------------------------------------------------------------
 -- Shared difficulty constants
@@ -98,9 +113,13 @@ function BaseScreen:init()
     if Device:hasKeys() then
         self.key_events.Close = { { Device.input.group.Back } }
     end
-    self.status_text = TextWidget:new{
-        text = _("Tap a cell, then pick a number."),
-        face = Font:getFace("smallinfofont"),
+    self.status_text = TextBoxWidget:new{
+        text      = _("Tap a cell, then pick a number."),
+        face      = Font:getFace("smallinfofont"),
+        width     = DeviceScreen:getWidth(),
+        height    = STATUS_TEXT_LINES * Size.item.height_default,
+        height_overflow_show_ellipsis = true,
+        alignment = "center",
     }
     self:buildLayout()
     UIManager:setDirty(self, function()
@@ -119,6 +138,27 @@ function BaseScreen:paintTo(bb, x, y)
         offset_y = offset_y + math.floor((self.dimen.h - content_size.h) / 2)
     end
     self.layout:paintTo(bb, offset_x, offset_y)
+end
+
+-- ---------------------------------------------------------------------------
+-- Status text sizing
+--
+-- self.status_text is created full-width in :init() before :buildLayout()
+-- has computed the actual column it sits in (board width in portrait, right
+-- panel width in landscape). Subclasses should call this from :buildLayout()
+-- once that width is known, so long status lines (e.g. cage info) wrap and
+-- stay centered instead of overflowing off the right edge of the screen.
+-- ---------------------------------------------------------------------------
+
+function BaseScreen:setStatusTextWidth(width)
+    self.status_text = TextBoxWidget:new{
+        text      = self.status_text.text,
+        face      = Font:getFace("smallinfofont"),
+        width     = width,
+        height    = STATUS_TEXT_LINES * Size.item.height_default,
+        height_overflow_show_ellipsis = true,
+        alignment = "center",
+    }
 end
 
 -- ---------------------------------------------------------------------------
