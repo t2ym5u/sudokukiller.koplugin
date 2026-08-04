@@ -789,10 +789,10 @@ function KillerSudokuBoard:load(state)
     return true
 end
 
-function KillerSudokuBoard:generate(difficulty, on_progress)
+function KillerSudokuBoard:generate(difficulty, randInt, on_progress)
     self.difficulty = difficulty or self.difficulty or DEFAULT_DIFFICULTY
     local n, box_rows, box_cols = self.n, self.box_rows, self.box_cols
-    local solution = generateSolvedBoard(n, box_rows, box_cols)
+    local solution = generateSolvedBoard(n, box_rows, box_cols, nil, randInt)
     local cages, cell_cage = generateVerifiedCages(solution, self.difficulty, n, box_rows, box_cols, on_progress)
     self.solution        = solution
     self.cages           = cages
