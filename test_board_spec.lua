@@ -166,8 +166,12 @@ describe("KillerSudokuBoard", function()
             end
             local r1, c1 = cage.cells[1].r, cage.cells[1].c
             local r2, c2 = cage.cells[2].r, cage.cells[2].c
-            b.user[r1][c1] = 1
-            b.user[r2][c2] = 2
+            -- Use the actual solution values: arbitrary distinct digits (e.g. 1
+            -- and 2) can coincidentally collide with an already-filled given
+            -- cell elsewhere in the shared row/col/box, which would trigger a
+            -- legitimate (non-cage) conflict unrelated to what's under test.
+            b.user[r1][c1] = b.solution[r1][c1]
+            b.user[r2][c2] = b.solution[r2][c2]
             b:recalcConflicts()
             -- These two cells alone won't conflict in their cage
             assert.is_false(b.conflicts[r1][c1])
