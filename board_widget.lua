@@ -29,34 +29,36 @@ local KillerSudokuBoardWidget = BaseBoardWidget:extend{
     board = nil,
 }
 
--- Extend base init to add cage sum label font and re-fit number font
+-- Extend base init to add cage sum label font and re-fit number font.
+-- Every cell (given or not, labeled or not) shares this one number font,
+-- so digits are the same size everywhere on the board; only the cell that
+-- shows the cage-sum label reserves top margin for it (see paintTo).
 function KillerSudokuBoardWidget:init()
     BaseBoardWidget.init(self)
 
-    -- Save full-cell number font for single-cell cage ("given") display
-    self.given_face = self.number_face
-
     local cell = self.size / self.n
 
-    -- Cage sum label: small font in top-left corner of each cage cell
-    local sum_font_size   = math.max(6, math.floor(cell * 0.18))
+    -- Cage sum label: small font in top-left corner of each cage cell.
+    -- Kept clearly smaller than the number font (below) so the two are
+    -- never mistaken for each other.
+    local sum_font_size   = math.max(6, math.floor(cell * 0.14))
     self.cage_sum_face    = Font:getFace("smallinfofont", sum_font_size)
-    self.cage_sum_padding = math.max(1, math.floor(cell / 14))
+    self.cage_sum_padding = math.max(1, math.floor(cell / 18))
     local sum_reserve     = self.cage_sum_padding + self.cage_sum_face.size
 
     -- Re-fit number font into the reduced height below the cage sum label
     local padding = self.number_cell_padding
     local safety  = math.max(1, math.floor(cell / 20))
     local max_w   = math.max(1, math.floor(cell - 2 * padding - safety))
-    -- 65% of available height: leaves visible margin between number and cage sum
-    local max_h   = math.max(1, math.floor((cell - sum_reserve) * 0.65))
+    -- 80% of available height: leaves a visible but small margin below the cage sum
+    local max_h   = math.max(1, math.floor((cell - sum_reserve) * 0.8))
     local size    = math.max(28, math.floor(self.size / 14))
     while size > 10 do
         local face = Font:getFace("cfont", size)
         local m    = RenderText:sizeUtf8Text(0, max_w, face, "8", true, false)
         local h    = m.y_top + m.y_bottom  -- ascender + descender = total glyph height
         if m.x <= max_w and h <= max_h then
-            local final_size = math.max(10, size - 3)
+            local final_size = math.max(10, size - 2)
             self.number_face      = Font:getFace("cfont", final_size)
             self.number_face_size = final_size
             break
@@ -161,29 +163,17 @@ function KillerSudokuBoardWidget:paintTo(bb, x, y)
     local sum_reserve  = self.cage_sum_padding + self.cage_sum_face.size
     local cell_padding = self.number_cell_padding or 0
 
-    -- Only cells that actually display a cage-sum label need the shrunk
-    -- font and reserved top margin; every other cell gets the full-size font.
-    local label_cells = {}
-    if self.board.cages then
-        for _, cage in ipairs(self.board.cages) do
-            if #cage.cells > 1 then
-                local label_cell = self.board:getCageLabelCell(cage)
-                if label_cell then
-                    label_cells[label_cell.r * (n + 1) + label_cell.c] = true
-                end
-            end
-        end
-    end
-
+    -- Every cell shares self.number_face (set up in :init) and reserves the
+    -- same top margin, so all digits sit on one common baseline across the
+    -- whole board regardless of which cells actually show a cage-sum label.
     for row = 1, n do
         for col = 1, n do
             local value = self.board:getDisplayValue(row, col)
             if value then
-                local cell_x    = x + (col - 1) * cell
-                local cell_y    = y + (row - 1) * cell
-                local is_given  = self.board:isGiven(row, col)
-                local has_label = label_cells[row * (n + 1) + col]
-                local text      = tostring(value)
+                local cell_x     = x + (col - 1) * cell
+                local cell_y     = y + (row - 1) * cell
+                local is_given   = self.board:isGiven(row, col)
+                local text       = tostring(value)
 
                 local color
                 if self.board:isConflict(row, col) then
@@ -196,17 +186,14 @@ function KillerSudokuBoardWidget:paintTo(bb, x, y)
                     color = Blitbuffer.COLOR_GRAY_2
                 end
 
-                local face         = has_label and self.number_face or self.given_face
+                local face         = self.number_face
                 local cell_inner_w = math.max(1, math.floor(cell - 2 * cell_padding))
                 local metrics      = RenderText:sizeUtf8Text(0, cell_inner_w, face, text, true, false)
-                local avail_h, baseline
-                if has_label then
-                    avail_h  = math.max(1, cell - sum_reserve - cell_padding)
-                    baseline = cell_y + sum_reserve + math.floor((avail_h + metrics.y_top - metrics.y_bottom) / 2)
-                else
-                    avail_h  = math.max(1, cell - 2 * cell_padding)
-                    baseline = cell_y + cell_padding + math.floor((avail_h + metrics.y_top - metrics.y_bottom) / 2)
-                end
+                -- Reserve the same top margin in every cell, whether or not it
+                -- actually shows a cage-sum label, so all digits share one
+                -- baseline across the grid instead of label cells sitting lower.
+                local avail_h  = math.max(1, cell - sum_reserve - cell_padding)
+                local baseline = cell_y + sum_reserve + math.floor((avail_h + metrics.y_top - metrics.y_bottom) / 2)
                 local text_x = cell_x + cell_padding + math.floor((cell_inner_w - metrics.x) / 2)
                 RenderText:renderUtf8Text(bb, text_x, baseline, face, text, true, false, color)
 
