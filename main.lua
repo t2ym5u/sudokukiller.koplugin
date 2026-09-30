@@ -24,14 +24,32 @@ local generateWithProgress = lrequire("common/base_screen").generateWithProgress
 
 local KillerSudokuScreen = lrequire("screen")
 
+local function file_exists(path)
+    local f = io.open(path, "r")
+    if f then f:close(); return true end
+    return false
+end
+
+-- `name` must match the directory basename: since KOReader 2026.03 (PR
+-- #15096) PluginLoader overwrites it with the directory name regardless of
+-- what is declared here.
 local KillerSudoku = WidgetContainer:extend{
-    name        = "killer_sudoku",
+    name        = "sudokukiller",
     is_doc_only = false,
 }
 
 function KillerSudoku:ensureSettings()
     if not self.settings_file then
-        self.settings_file = DataStorage:getSettingsDir() .. "/killer_sudoku.lua"
+        local dir = DataStorage:getSettingsDir()
+        self.settings_file = dir .. "/sudokukiller.lua"
+        -- The settings file used to be named after the old "killer_sudoku"
+        -- plugin id. Carry a player's saved grid over rather than silently
+        -- starting them on an empty board.
+        local legacy = dir .. "/killer_sudoku.lua"
+        if not file_exists(self.settings_file) and file_exists(legacy) then
+            os.rename(legacy, self.settings_file)
+            os.remove(legacy .. ".old")
+        end
     end
     if not self.settings then
         self.settings = LuaSettings:open(self.settings_file)
@@ -44,7 +62,7 @@ function KillerSudoku:init()
 end
 
 function KillerSudoku:addToMainMenu(menu_items)
-    menu_items.killer_sudoku = {
+    menu_items.sudokukiller = {
         text         = _("Killer Sudoku"),
         sorting_hint = "tools",
         callback     = function() self:showGame() end,

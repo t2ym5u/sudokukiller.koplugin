@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.1] - 2026-09-30
+
+### Fixed
+- A digit conflicting with another was meant to stand out, but was painted
+  with `Blitbuffer.COLOR_RED` -- a constant KOReader does not define. Its
+  palette is greyscale only, so the colour came out `nil` and `renderUtf8Text`
+  fell back to black: exactly the colour of a given digit. The conflict was
+  invisible. It is now signalled by shape rather than colour -- the digit turns
+  bold and gets a bar underneath it.
+- The plugin declared `name = "killer_sudoku"` while living in
+  `sudokukiller.koplugin`. Since KOReader 2026.03 (PR #15096) PluginLoader
+  keys a plugin on its directory name and overwrites whatever the plugin
+  declares, so the mismatch only served to confuse every tool that reads the
+  id. It is now `sudokukiller`, and an existing `killer_sudoku.lua` settings
+  file is renamed on first run so a saved grid is not lost.
+
 ## [1.3.0] - 2026-09-30
 
 ### Added
