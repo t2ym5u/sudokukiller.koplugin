@@ -12,7 +12,7 @@ Standard Sudoku rules (fill 1–9; no repeats in rows, columns, or 3×3 boxes) p
 
 ## Features
 
-- **Three difficulty levels** — Easy, Medium, Hard
+- **Four difficulty levels** — Easy, Medium, Hard and Expert
 - **Cage highlighting** — tapping a caged cell highlights the whole cage
 - **Note mode** — pencil in candidate digits
 - **Check** — highlights incorrect cells
