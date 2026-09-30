@@ -13,6 +13,7 @@ Standard Sudoku rules (fill 1–9; no repeats in rows, columns, or 3×3 boxes) p
 ## Features
 
 - **Four difficulty levels** — Easy, Medium, Hard and Expert
+- **Hint** — two taps: the first says which cell is about to give, the second fills it. Works on Easy and Medium, which are now solvable by deduction alone; Hard and Expert stay genre-pure (no given digits) and the cages alone do not decide them, so there it says so rather than guessing
 - **Cage highlighting** — tapping a caged cell highlights the whole cage
 - **Note mode** — pencil in candidate digits
 - **Check** — highlights incorrect cells
