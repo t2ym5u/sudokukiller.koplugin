@@ -17,6 +17,7 @@ local common           = lrequire_common("base_board_widget")
 local BaseBoardWidget  = common.BaseBoardWidget
 local drawLine         = common.drawLine
 local drawDiagonalLine = common.drawDiagonalLine
+local drawConflictMark = common.drawConflictMark
 local drawDashedLine   = common.drawDashedLine
 
 local CAGE_BORDER_COLOR = Blitbuffer.COLOR_GRAY_E
@@ -175,9 +176,10 @@ function KillerSudokuBoardWidget:paintTo(bb, x, y)
                 local is_given   = self.board:isGiven(row, col)
                 local text       = tostring(value)
 
+                local is_conflict = self.board:isConflict(row, col)
                 local color
-                if self.board:isConflict(row, col) then
-                    color = Blitbuffer.COLOR_RED
+                if is_conflict then
+                    color = Blitbuffer.COLOR_BLACK
                 elseif is_given then
                     color = Blitbuffer.COLOR_BLACK
                 elseif self.board:isShowingSolution() then
@@ -195,7 +197,11 @@ function KillerSudokuBoardWidget:paintTo(bb, x, y)
                 local avail_h  = math.max(1, cell - sum_reserve - cell_padding)
                 local baseline = cell_y + sum_reserve + math.floor((avail_h + metrics.y_top - metrics.y_bottom) / 2)
                 local text_x = cell_x + cell_padding + math.floor((cell_inner_w - metrics.x) / 2)
-                RenderText:renderUtf8Text(bb, text_x, baseline, face, text, true, false, color)
+                RenderText:renderUtf8Text(bb, text_x, baseline, face, text, true, is_conflict, color)
+
+                if is_conflict then
+                    drawConflictMark(bb, cell_x, cell_y, cell)
+                end
 
                 if self.board:hasWrongMark(row, col) then
                     local padding   = math.max(1, math.floor(cell / 12))
