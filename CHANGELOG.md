@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.0] - 2026-09-30
+
+### Added
+- **Hint** button, which this plugin could not have before. The shared solver
+  now reads cage sums, so it plays the killer techniques rather than only the
+  classic ones: cage combination analysis, a cage's last cell, and the 45 rule
+  (innies and outies).
+- Easy and Medium grids are now guaranteed solvable by deduction alone. They
+  were not: measured before this, the classic solver placed under 1 of the
+  65-80 empty cells, and even the cage-aware solver finished none of them until
+  generation started checking. It now splits one more cell out as a given
+  whenever the deduction stalls, until the grid is deducible — 0 of 4 before,
+  4 of 4 after, at 16 given digits rather than 15.
+
+### Note
+- Hard and Expert deliberately keep no given digits at all, as a real Killer
+  Sudoku does, and their cages alone do not decide the grid. They are left as
+  they are — adding the givens they would need would make them a different
+  puzzle — so the Hint button reports there that no purely logical step is
+  available rather than inventing one.
+
+
 ## [1.2.19] - 2026-09-30
 
 ### Fixed

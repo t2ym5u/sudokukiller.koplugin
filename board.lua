@@ -10,6 +10,7 @@ end
 local grid_utils       = lrequire_common("sudoku_grid_utils")
 local puzzle_generator = lrequire_common("puzzle_generator")
 local BaseBoard        = lrequire_common("base_board")
+local logic_solver     = lrequire_common("logic_solver")
 
 local emptyGrid       = grid_utils.emptyGrid
 local emptyNotes      = grid_utils.emptyNotes
@@ -789,11 +790,106 @@ function KillerSudokuBoard:load(state)
     return true
 end
 
+-- ---------------------------------------------------------------------------
+-- Pure-logic guarantee
+--
+-- Cage geometry alone does not decide whether a killer grid can be solved by
+-- deduction: this generator grows cages at random and then checks the puzzle
+-- has one solution, which is weaker -- a unique solution can still need
+-- guessing. Measured before this, easy and medium grids were deducible only
+-- once the cage-aware solver existed, and hard and expert were not deducible
+-- at all, because they are dealt with barely a given digit.
+--
+-- So: hand the starting position to the solver, and while it cannot finish,
+-- split one more cell out into its own 1-cell cage (which the board shows as
+-- a given). Each split strictly reduces the unknowns, so this terminates; in
+-- the worst case every cell becomes a given, which is trivially deducible.
+--
+-- The cell chosen is the one the solver got furthest with -- the first it
+-- could not resolve in reading order -- rather than a random one, so the
+-- givens land where the deduction actually stalls.
+--
+-- Only Easy and Medium go through this. Hard and Expert are deliberately
+-- genre-pure: a real Killer Sudoku carries no given digits at all, the cages
+-- say everything, and test_board_spec.lua pins that. Adding the givens they
+-- would need to become deducible would turn them into a different puzzle. They
+-- keep their cage geometry, and the Hint button simply stops when the cages
+-- stop deciding -- see the note in README.md.
+local function startingGrid(cages, solution, n)
+    local grid = emptyGrid(n)
+    for _, cage in ipairs(cages) do
+        if #cage.cells == 1 then
+            local cell = cage.cells[1]
+            grid[cell.r][cell.c] = solution[cell.r][cell.c]
+        end
+    end
+    return grid
+end
+
+local function rebuildCellCage(cages, n)
+    local map = {}
+    for r = 1, n do
+        map[r] = {}
+        for c = 1, n do map[r][c] = 0 end
+    end
+    for _, cage in ipairs(cages) do
+        for _, cell in ipairs(cage.cells) do map[cell.r][cell.c] = cage.id end
+    end
+    return map
+end
+
+local function ensureDeducible(solution, cages, cell_cage, n, box_rows, box_cols, on_progress)
+    -- Each pass either finishes or adds one given, so the work is bounded by
+    -- the number of cells; report against that so the progress bar keeps
+    -- moving through what is the slowest part of generating a killer grid.
+    local guard, added = n * n, 0
+    while guard > 0 do
+        guard = guard - 1
+        if on_progress then on_progress(added, added + 4) end
+        local grid = startingGrid(cages, solution, n)
+        local res  = logic_solver.solve(grid, n, box_rows, box_cols, nil, { cages = cages })
+        if res.solved then break end
+
+        -- First unresolved cell in reading order: where the deduction stopped.
+        local pick
+        for r = 1, n do
+            for c = 1, n do
+                if res.grid[r][c] == 0 and grid[r][c] == 0 then pick = { r = r, c = c } break end
+            end
+            if pick then break end
+        end
+        if not pick then break end
+
+        -- Split it out of its cage into a 1-cell cage, moving its share of the
+        -- sum with it so both cages stay consistent.
+        local parent = cages[cell_cage[pick.r][pick.c]]
+        if not parent or #parent.cells <= 1 then break end
+        local value = solution[pick.r][pick.c]
+        for i, cell in ipairs(parent.cells) do
+            if cell.r == pick.r and cell.c == pick.c then table.remove(parent.cells, i) break end
+        end
+        parent.sum = parent.sum - value
+        cages[#cages + 1] = {
+            id       = #cages + 1,
+            cells    = { { r = pick.r, c = pick.c } },
+            sum      = value,
+            is_given = true,
+        }
+        cell_cage = rebuildCellCage(cages, n)
+        added = added + 1
+    end
+    if on_progress then on_progress(1, 1) end
+    return cages, cell_cage
+end
+
 function KillerSudokuBoard:generate(difficulty, randInt, on_progress)
     self.difficulty = difficulty or self.difficulty or DEFAULT_DIFFICULTY
     local n, box_rows, box_cols = self.n, self.box_rows, self.box_cols
     local solution = generateSolvedBoard(n, box_rows, box_cols, nil, randInt)
     local cages, cell_cage = generateVerifiedCages(solution, self.difficulty, n, box_rows, box_cols, on_progress)
+    if self.difficulty == "easy" or self.difficulty == "medium" then
+        cages, cell_cage = ensureDeducible(solution, cages, cell_cage, n, box_rows, box_cols, on_progress)
+    end
     self.solution        = solution
     self.cages           = cages
     self.cell_cage       = cell_cage
@@ -849,6 +945,12 @@ end
 -- ---------------------------------------------------------------------------
 -- Overrides
 -- ---------------------------------------------------------------------------
+
+-- Hints must see the cage sums: without them the solver knows only the grid,
+-- and a killer grid barely has one to go on.
+function KillerSudokuBoard:getCages()
+    return self.cages
+end
 
 function KillerSudokuBoard:isGiven(row, col)
     local cage_id = self.cell_cage[row] and self.cell_cage[row][col] or 0
