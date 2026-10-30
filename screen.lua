@@ -14,16 +14,9 @@ local function lrequire_common(name)
     return package.loaded[key]
 end
 
-local ButtonTable    = require("ui/widget/buttontable")
 local Device         = require("device")
-local FrameContainer = require("ui/widget/container/framecontainer")
-local HorizontalGroup = require("ui/widget/horizontalgroup")
-local HorizontalSpan  = require("ui/widget/horizontalspan")
 local Menu           = require("ui/widget/menu")
-local Size           = require("ui/size")
 local UIManager      = require("ui/uimanager")
-local VerticalGroup  = require("ui/widget/verticalgroup")
-local VerticalSpan   = require("ui/widget/verticalspan")
 local _              = require("i18n")
 local T              = require("ffi/util").template
 
@@ -74,105 +67,22 @@ Contrainte des cages :
 local KillerSudokuScreen = BaseScreen:extend{}
 
 function KillerSudokuScreen:buildLayout()
-    self.board_widget = KillerSudokuBoardWidget:new{
-        board              = self.board,
-        onSelectionChanged = function() self:updateStatus() end,
-    }
-
-    local is_landscape = DeviceScreen:getWidth() > DeviceScreen:getHeight()
-    local sw = DeviceScreen:getWidth()
-
-    local board_frame = FrameContainer:new{
-        padding = Size.padding.large,
-        margin  = Size.margin.default,
-        self.board_widget,
-    }
-
-    local board_frame_size  = self.board_widget.size + (Size.padding.large + Size.margin.default) * 2
-    local right_panel_width = sw - board_frame_size - Size.span.horizontal_default
-    local button_width = is_landscape
-        and math.max(right_panel_width - Size.span.horizontal_default, 100)
-        or  math.floor(sw * 0.9)
-    local keypad_width = is_landscape and button_width or math.floor(sw * 0.75)
-
-    self.status_text:setMaxWidth(is_landscape and button_width or board_frame_size)
-
-    -- Title bar with Options menu
     local title_bar = self:buildTitleBar(_("Killer Sudoku"), function()
         return {
             { text = _("New game"),                  callback = function() self:onNewGame() end },
             { text = self:getDifficultyButtonText(), callback = function() self:openDifficultyMenu() end },
-            { text = self.board:isShowingSolution() and _("Hide result") or _("Show result"),
+            { text = self.board:isShowingSolution() and _("Hide solution") or _("Show solution"),
               callback = function() self:toggleSolution() end },
             self:makeRulesButtonConfig(GAME_RULES_EN, GAME_RULES_FR),
         }
     end)
-
-    -- Digit keypad (9×9 only)
-    local n        = self.board.n
-    local box_rows = self.board.box_rows
-    local box_cols = self.board.box_cols
-    local keypad_rows = {}
-    local digit = 1
-    for _ = 1, box_rows do
-        local row = {}
-        for _ = 1, box_cols do
-            local d = digit
-            row[#row + 1] = {
-                id = "digit_" .. d, text = tostring(d),
-                callback = function() self:onDigit(d) end,
-            }
-            digit = digit + 1
-        end
-        keypad_rows[#keypad_rows + 1] = row
-    end
-    keypad_rows[#keypad_rows + 1] = {
-        { id = "note_button", text = self:getNoteButtonText(),
-          callback = function() self:toggleNoteMode() end },
-        { text = _("Erase"),  callback = function() self:onErase() end },
-        { text = _("Check"),  callback = function() self:checkProgress() end },
-        -- The solver reads cage sums now, so this button works: Easy and
-        -- Medium grids are deducible end to end. Hard and Expert are
-        -- deliberately genre-pure -- no given digits at all -- and the cages
-        -- alone do not decide them, so there it reports honestly that no
-        -- purely logical step is available.
-        { text = _("Hint"),   callback = function() self:onHint() end },
-        { id = "undo_button", text = _("Undo"),
-          callback = function() self:onUndo() end },
+    local controls = self:buildKeypadControls()
+    self.board_widget = KillerSudokuBoardWidget:new{
+        board              = self.board,
+        max_size           = self:getBoardMaxSize(title_bar, controls),
+        onSelectionChanged = function() self:updateStatus() end,
     }
-    local keypad = ButtonTable:new{
-        width = keypad_width, shrink_unneeded_width = true, buttons = keypad_rows,
-    }
-    self.note_button  = keypad:getButtonById("note_button")
-    self.undo_button  = keypad:getButtonById("undo_button")
-    self.digit_buttons = {}
-    for d = 1, n do
-        self.digit_buttons[d] = keypad:getButtonById("digit_" .. d)
-    end
-
-    if is_landscape then
-        local right_panel = VerticalGroup:new{
-            align = "center",
-            self.status_text,
-            VerticalSpan:new{ width = Size.span.vertical_large },
-            keypad,
-        }
-        local content = HorizontalGroup:new{
-            align = "center",
-            board_frame,
-            HorizontalSpan:new{ width = Size.span.horizontal_default },
-            right_panel,
-        }
-        self:buildLandscapeLayout(title_bar, content)
-    else
-        local content = VerticalGroup:new{
-            align = "center",
-            board_frame,
-            VerticalSpan:new{ width = Size.span.vertical_large },
-            self.status_text,
-        }
-        self:buildPortraitLayout(title_bar, content, keypad)
-    end
+    self:placeBoard(title_bar, self.board_widget, controls)
     self:ensureShowButtonState()
     self:updateNoteButton()
     self:updateUndoButton()
@@ -189,7 +99,23 @@ function KillerSudokuScreen:getDifficultyButtonText()
     local diff  = self.board.difficulty
     local label = DIFFICULTY_LABELS[diff] or diff
     local hint  = DIFFICULTY_CAGE_HINT[diff] or ""
-    return T(_("Diff: %1 (%2)"), label, hint)
+    return T(_("Difficulty: %1"), T("%1 (%2)", label, hint))
+end
+
+-- Status extra: progress of the cage under the selection.
+function KillerSudokuScreen:getStatusExtra()
+    local row, col = self.board:getSelection()
+    local cage = self.board:getCage(row, col)
+    if not cage then return nil end
+    local cage_filled, cage_partial = 0, 0
+    for _, cell in ipairs(cage.cells) do
+        local v = self.board:getWorkingValue(cell.r, cell.c)
+        if v ~= 0 then
+            cage_filled  = cage_filled + 1
+            cage_partial = cage_partial + v
+        end
+    end
+    return T(_("Cage: %1/%2, sum %3/%4"), cage_filled, #cage.cells, cage_partial, cage.sum)
 end
 
 function KillerSudokuScreen:openDifficultyMenu()
@@ -227,40 +153,6 @@ function KillerSudokuScreen:openDifficultyMenu()
         show_parent = self,
     }
     UIManager:show(menu)
-end
-
-function KillerSudokuScreen:updateStatus(message)
-    local status
-    if message then
-        status = message
-    else
-        local remaining = self.board:getRemainingCells()
-        local row, col  = self.board:getSelection()
-        local cage_info = ""
-        local cage = self.board:getCage(row, col)
-        if cage then
-            local cage_filled, cage_partial = 0, 0
-            for _, cell in ipairs(cage.cells) do
-                local v = self.board:getWorkingValue(cell.r, cell.c)
-                if v ~= 0 then
-                    cage_filled  = cage_filled + 1
-                    cage_partial = cage_partial + v
-                end
-            end
-            cage_info = T(_("  ·  Cage %1/%2, sum %3/%4"),
-                cage_filled, #cage.cells, cage_partial, cage.sum)
-        end
-        status = T(_("%1,%2  ·  %3 empty%4"), row, col, remaining, cage_info)
-        if self.board:isShowingSolution() then
-            status = status .. "\n" .. _("Result is being shown; editing is disabled.")
-        elseif self.board:isSolved() then
-            status = _("Congratulations! Puzzle solved.")
-        elseif self.note_mode then
-            status = status .. "\n" .. _("Note mode is ON.")
-        end
-    end
-    self.status_text:setText(status)
-    UIManager:setDirty(self, function() return "ui", self.dimen end)
 end
 
 return KillerSudokuScreen

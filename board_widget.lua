@@ -1,4 +1,5 @@
 local Blitbuffer  = require("ffi/blitbuffer")
+local Device      = require("device")
 local Font        = require("ui/font")
 local Geom        = require("ui/geometry")
 local RenderText  = require("ui/rendertext")
@@ -19,6 +20,9 @@ local drawLine         = common.drawLine
 local drawDiagonalLine = common.drawDiagonalLine
 local drawConflictMark = common.drawConflictMark
 local drawDashedLine   = common.drawDashedLine
+local fitFontSize      = common.fitFontSize
+
+local Screen = Device.screen
 
 local CAGE_BORDER_COLOR = Blitbuffer.COLOR_GRAY_E
 
@@ -41,11 +45,17 @@ function KillerSudokuBoardWidget:init()
 
     -- Cage sum label: small font in top-left corner of each cage cell.
     -- Kept clearly smaller than the number font (below) so the two are
-    -- never mistaken for each other.
-    local sum_font_size   = math.max(6, math.floor(cell * 0.14))
-    self.cage_sum_face    = Font:getFace("smallinfofont", sum_font_size)
+    -- never mistaken for each other, but fitted to the cell rather than
+    -- derived from it as a face size: Font:getFace scales sizes by the
+    -- screen, so a pixel-derived size came out at a different fraction of
+    -- the cell on every device (barely legible on small ones).
+    local sum_size        = fitFontSize("smallinfofont", 6,
+        math.floor(cell * 0.45), math.floor(cell * 0.22), "45")
+    self.cage_sum_face    = Font:getFace("smallinfofont", sum_size)
     self.cage_sum_padding = math.max(1, math.floor(cell / 18))
-    local sum_reserve     = self.cage_sum_padding + self.cage_sum_face.size
+    self.cage_sum_ascent  = RenderText:sizeUtf8Text(0, Screen:getWidth(),
+        self.cage_sum_face, "45", true, false).y_top
+    local sum_reserve     = self.cage_sum_padding + self.cage_sum_ascent
 
     -- Re-fit number font into the reduced height below the cage sum label
     local padding = self.number_cell_padding
@@ -53,19 +63,9 @@ function KillerSudokuBoardWidget:init()
     local max_w   = math.max(1, math.floor(cell - 2 * padding - safety))
     -- 80% of available height: leaves a visible but small margin below the cage sum
     local max_h   = math.max(1, math.floor((cell - sum_reserve) * 0.8))
-    local size    = math.max(28, math.floor(self.size / 14))
-    while size > 10 do
-        local face = Font:getFace("cfont", size)
-        local m    = RenderText:sizeUtf8Text(0, max_w, face, "8", true, false)
-        local h    = m.y_top + m.y_bottom  -- ascender + descender = total glyph height
-        if m.x <= max_w and h <= max_h then
-            local final_size = math.max(10, size - 2)
-            self.number_face      = Font:getFace("cfont", final_size)
-            self.number_face_size = final_size
-            break
-        end
-        size = size - 1
-    end
+    local size    = math.max(10, fitFontSize("cfont", 10, max_w, max_h, "8") - 1)
+    self.number_face      = Font:getFace("cfont", size)
+    self.number_face_size = size
 end
 
 function KillerSudokuBoardWidget:paintTo(bb, x, y)
@@ -161,7 +161,7 @@ function KillerSudokuBoardWidget:paintTo(bb, x, y)
         end
     end
 
-    local sum_reserve  = self.cage_sum_padding + self.cage_sum_face.size
+    local sum_reserve  = self.cage_sum_padding + self.cage_sum_ascent
     local cell_padding = self.number_cell_padding or 0
 
     -- Every cell shares self.number_face (set up in :init) and reserves the
@@ -246,7 +246,7 @@ function KillerSudokuBoardWidget:paintTo(bb, x, y)
                     local label_text = tostring(cage.sum)
                     local cell_x     = math.floor(x + (label_cell.c - 1) * cell)
                     local cell_y     = math.floor(y + (label_cell.r - 1) * cell)
-                    local baseline   = cell_y + pad + self.cage_sum_face.size
+                    local baseline   = cell_y + pad + self.cage_sum_ascent
                     RenderText:renderUtf8Text(bb, cell_x + pad, baseline, self.cage_sum_face, label_text, true, false, Blitbuffer.COLOR_BLACK)
                 end
             end
