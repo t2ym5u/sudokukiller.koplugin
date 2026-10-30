@@ -39,7 +39,7 @@ Standard Sudoku rules (fill 1–9; no repeats in rows, columns, or 3×3 boxes) p
 | Undo last move | Tap **Undo** |
 | Check progress | Tap **Check** |
 | New game | Tap **New game** |
-| Change difficulty | Tap **Diff** |
+| Change difficulty | Tap **Difficulty** |
 | Show rules | Tap **Rules** |
 
 ## Known limitations

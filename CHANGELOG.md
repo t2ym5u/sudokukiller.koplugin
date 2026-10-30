@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.5.0] - 2026-10-30
+
+### Changed
+- Redesigned play screen (sudoku-common 1.5.0): the board is larger, filling
+  the room the controls leave, with the digits 1-9 on one even row and Note /
+  Erase / Check / Hint / Undo in a full-width bar under the status line.
+- The status line reads "9×9 · Medium · Empty: 45 · Cage: 2/3, sum 9/15"
+  (the cage under the selection) and wraps in landscape instead of being cut
+  off.
+- The title-bar menu shows "Difficulty: …" and "Show solution" / "Hide
+  solution" (was "Diff: …" and "Show result" / "Hide result"), like every
+  other game.
+- Once the puzzle is solved, the tool bar shows "New game" in place of
+  Note/Erase/Check/Hint/Undo; an Undo that un-solves the grid brings the tools
+  back.
+
+### Fixed
+- Digits overflowed their cells: the shared font fit accepted every size.
+  Digits and notes now fit their cell on every screen.
+- Cage sums were sized from pixels and then scaled again for the screen's
+  DPI, so they came out at a different fraction of the cell on every device
+  (barely legible on small ones). They are now fitted to the cell's corner.
+
 ## [1.4.1] - 2026-10-02
 
 ### Fixed
