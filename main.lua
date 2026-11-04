@@ -9,6 +9,31 @@ local function lrequire(name)
     return package.loaded[key]
 end
 
+-- The game screen, the board and its puzzle generator / solver load the
+-- first time the game is opened (or Dashboard asks about the daily
+-- challenge), not when KOReader starts:
+-- KOReader loads every plugin at startup and keeps it all session, so a
+-- top-level require here costs memory even if the game is never played.
+-- KOReader has put package.path back by then, so our directories are added
+-- again while the module loads (common/ stays as a fallback for the shared
+-- modules the game requires later on).
+local function lazyrequire(name)
+    local saved = package.path
+    package.path = _dir .. "?.lua;" .. _dir .. "common/?.lua;" .. saved
+    local ok, mod = pcall(lrequire, name)
+    package.path = saved
+    if not package.path:find(_dir .. "common/?.lua", 1, true) then
+        package.path = package.path .. ";" .. _dir .. "common/?.lua"
+    end
+    if not ok then error(mod, 0) end
+    return mod
+end
+
+-- sudoku-common's puzzle generation with a progress bar (base_screen.lua).
+local function generateWithProgress(...)
+    return lazyrequire("common/base_screen").generateWithProgress(...)
+end
+
 local DataStorage     = require("datastorage")
 local LuaSettings     = require("luasettings")
 local UIManager       = require("ui/uimanager")
@@ -22,13 +47,6 @@ local _               = require("i18n")
 local ok_stats, StatsExporter = pcall(require, "stats_exporter")
 
 require("i18n").extend(lrequire("i18n_fr"))
-
-local board_module       = lrequire("board")
-local KillerSudokuBoard  = board_module.KillerSudokuBoard
-local DEFAULT_DIFFICULTY = board_module.DEFAULT_DIFFICULTY
-local generateWithProgress = lrequire("common/base_screen").generateWithProgress
-
-local KillerSudokuScreen = lrequire("screen")
 
 local function file_exists(path)
     local f = io.open(path, "r")
@@ -49,7 +67,7 @@ local KillerSudoku = WidgetContainer:extend{
     is_doc_only = false,
 }
 
-function KillerSudoku:ensureSettings()
+function KillerSudoku:ensureSettings(path_only)
     if not self.settings_file then
         local dir = DataStorage:getSettingsDir()
         self.settings_file = dir .. "/sudokukiller.lua"
@@ -62,13 +80,16 @@ function KillerSudoku:ensureSettings()
             os.remove(legacy .. ".old")
         end
     end
-    if not self.settings then
+    if not self.settings and not path_only then
         self.settings = LuaSettings:open(self.settings_file)
     end
 end
 
 function KillerSudoku:init()
-    self:ensureSettings()
+    -- Only the settings file's path is needed now (KOReader reads
+    -- settings_file to offer "Delete plugin settings"): the file itself,
+    -- saved grid included, is read when the game is first opened.
+    self:ensureSettings(true)
     self.ui.menu:registerToMainMenu(self)
 end
 
@@ -95,10 +116,10 @@ end
 function KillerSudoku:getBoard()
     if not self.board then
         self:ensureSettings()
-        self.board = KillerSudokuBoard:new()
+        self.board = lazyrequire("board").KillerSudokuBoard:new()
         local state = self.settings:readSetting("state")
         if not self.board:load(state) then
-            generateWithProgress(self.board, DEFAULT_DIFFICULTY)
+            generateWithProgress(self.board, lazyrequire("board").DEFAULT_DIFFICULTY)
         end
     end
     return self.board
@@ -114,7 +135,7 @@ end
 function KillerSudoku:showGame()
     if self.screen then return end
     self._session_start = os.time()
-    self.screen = KillerSudokuScreen:new{
+    self.screen = lazyrequire("screen"):new{
         board  = self:getBoard(),
         plugin = self,
     }

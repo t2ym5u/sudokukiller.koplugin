@@ -296,18 +296,24 @@ local FULL_DIGIT_MASK = 0x3FE -- bits 1..9
 -- MIN_SUM[m][k] / MAX_SUM[m][k]: the smallest / largest sum of k distinct
 -- digits taken from the set m (bit v = digit v, as a 0..1023 index), or nil
 -- when m has fewer than k digits. POPCOUNT[m]: number of digits in m.
-local MIN_SUM, MAX_SUM, POPCOUNT = {}, {}, {}
-for m = 0, FULL_DIGIT_MASK do
-    local digits = {}
-    for v = 1, 9 do
-        if band(m, lshift(1, v)) ~= 0 then digits[#digits + 1] = v end
+-- Some 2000 small tables (~350 KB): built by the first countCageSolutions()
+-- (about a millisecond) and dropped by release() when the game closes.
+local MIN_SUM, MAX_SUM, POPCOUNT
+
+local function buildSumTables()
+    MIN_SUM, MAX_SUM, POPCOUNT = {}, {}, {}
+    for m = 0, FULL_DIGIT_MASK do
+        local digits = {}
+        for v = 1, 9 do
+            if band(m, lshift(1, v)) ~= 0 then digits[#digits + 1] = v end
+        end
+        local mins, maxs = { [0] = 0 }, { [0] = 0 }
+        for k = 1, #digits do
+            mins[k] = mins[k - 1] + digits[k]
+            maxs[k] = maxs[k - 1] + digits[#digits - k + 1]
+        end
+        MIN_SUM[m], MAX_SUM[m], POPCOUNT[m] = mins, maxs, #digits
     end
-    local mins, maxs = { [0] = 0 }, { [0] = 0 }
-    for k = 1, #digits do
-        mins[k] = mins[k - 1] + digits[k]
-        maxs[k] = maxs[k - 1] + digits[#digits - k + 1]
-    end
-    MIN_SUM[m], MAX_SUM[m], POPCOUNT[m] = mins, maxs, #digits
 end
 
 -- Digits the next cell of a cage may take, given the digits already in the
@@ -337,6 +343,7 @@ local function cageAllowedMask(used, empty, target)
 end
 
 local function countCageSolutions(cell_cage, cages, n, box_rows, box_cols, limit, node_budget)
+    if not POPCOUNT then buildSumTables() end
     local row_used, col_used, box_used = {}, {}, {}
     for i = 1, n do row_used[i] = 0; col_used[i] = 0 end
     local num_box_cols = n / box_cols
@@ -1013,6 +1020,9 @@ return {
     KillerSudokuBoard  = KillerSudokuBoard,
     DEFAULT_DIFFICULTY = DEFAULT_DIFFICULTY,
     CAGE_COUNT_RANGES  = CAGE_COUNT_RANGES,
+    -- Drops the generator's sum tables (rebuilt on the next generation).
+    release            = function() MIN_SUM, MAX_SUM, POPCOUNT = nil, nil, nil end,
+    sumTablesBuilt     = function() return POPCOUNT ~= nil end,
     -- For test_board_spec.lua only.
     _countCageSolutions = countCageSolutions,
     _generateCages      = generateCages,

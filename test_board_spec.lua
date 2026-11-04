@@ -248,6 +248,26 @@ describe("KillerSudokuBoard", function()
               sums = {7,7,2,6,7,6,4,4,8,9,6,9,7,15,19,11,11,10,15,9,16,6,11,16,17,10,15,14,8,5,8,12,12,3,13,17,16,7,12,7,8},
               solutions = 1, exhausted = false, nodes = 529 },
         }
+        it("builds its sum tables on first use only, and release() drops them", function()
+            Mod.release()
+            assert.is_false(Mod.sumTablesBuilt())
+            local lay = LAYOUTS[3]
+            local cages = {}
+            for id, sum in ipairs(lay.sums) do cages[id] = { id = id, sum = sum, cells = {} } end
+            for r = 1, 9 do
+                for c = 1, 9 do
+                    local cells = cages[lay.cell_cage[r][c]].cells
+                    cells[#cells + 1] = { r = r, c = c }
+                end
+            end
+            local function count() return select(3, Mod._countCageSolutions(lay.cell_cage, cages, 9, 3, 3, 2, 6000)) end
+            assert.are.equal(lay.nodes, count())
+            assert.is_true(Mod.sumTablesBuilt())
+            Mod.release()
+            assert.is_false(Mod.sumTablesBuilt())
+            assert.are.equal(lay.nodes, count())   -- rebuilt, same search
+        end)
+
         for _, lay in ipairs(LAYOUTS) do
             it("explores the same tree as before: " .. lay.label, function()
                 local cages = {}

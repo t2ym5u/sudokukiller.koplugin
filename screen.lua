@@ -155,4 +155,10 @@ function KillerSudokuScreen:openDifficultyMenu()
     UIManager:show(menu)
 end
 
+-- The cage generator's sum tables are only needed while the game is open:
+-- drop them when the screen closes (the next new grid builds them again).
+function KillerSudokuScreen:onCloseWidget()
+    lrequire("board").release()
+end
+
 return KillerSudokuScreen
