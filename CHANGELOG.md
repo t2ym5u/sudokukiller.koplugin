@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.8.0] - 2026-11-04
+
+### Changed
+- Shared sudoku-common 1.7.0 (faster clue digging for the other sudoku
+  games). Killer puzzles, their generation and hints are unchanged.
+- Uses less memory: the game loads when you open it, not when KOReader
+  starts, so it no longer takes memory or startup time while unplayed.
+- Uses less memory: the cage generator's working tables (about 350 KB) are
+  built when a grid is generated and freed when the game closes.
+
 ## [1.7.0] - 2026-11-04
 
 ### Changed
