@@ -228,4 +228,54 @@ describe("KillerSudokuBoard", function()
             assert.is_false(b:load({}))
         end)
     end)
+
+    -- 1.7.0 rewrote the cage-sum solver for speed (one cage mask instead of
+    -- a sorted table per cell and digit). It must explore exactly the same
+    -- search tree: the node budget decides which cage layout a seed ends up
+    -- with, so these are the counts the 1.6.0 solver gave on three layouts.
+    describe("cage-sum solver", function()
+        local LAYOUTS = {
+            { label = "medium layout with two solutions",
+              cell_cage = {{22,22,22,22,9,17,19,19,14},{24,24,24,22,17,17,29,14,14},{7,24,24,4,5,17,29,1,15},{27,26,31,31,20,17,15,15,15},{27,26,31,20,20,20,20,12,15},{16,31,31,32,2,6,18,18,11},{16,16,16,21,21,28,28,30,30},{25,13,13,13,21,28,28,23,10},{25,25,13,3,21,8,23,23,23}},
+              sums = {7,6,8,5,8,3,2,2,4,9,2,4,15,12,27,26,24,9,11,23,21,22,12,29,14,8,10,22,11,13,27,9},
+              solutions = 2, exhausted = false, nodes = 1867 },
+            { label = "hard layout that runs out of budget",
+              cell_cage = {{16,7,13,13,13,11,11,17,17},{16,7,16,13,13,11,11,17,17},{16,16,16,14,14,14,3,3,18},{2,2,10,9,9,3,3,3,18},{2,10,10,9,4,4,12,12,18},{2,10,10,9,4,4,12,12,12},{8,6,6,19,19,19,19,19,21},{8,6,6,19,1,1,1,1,21},{5,5,6,20,20,20,15,15,15}},
+              sums = {20,21,28,11,7,31,7,7,25,24,21,33,25,7,22,36,23,9,28,8,12},
+              solutions = 0, exhausted = true, nodes = 6001 },
+            { label = "easy layout with a unique solution",
+              cell_cage = {{35,24,24,38,38,13,13,7,17},{35,34,34,25,15,15,37,37,17},{16,33,11,25,1,15,29,29,29},{16,33,10,25,31,31,36,36,40},{16,33,30,2,31,41,12,36,3},{19,19,30,39,27,27,27,18,22},{28,28,28,39,21,26,26,18,18},{32,32,9,39,21,6,26,5,8},{32,4,20,20,21,14,14,23,23}},
+              sums = {7,7,2,6,7,6,4,4,8,9,6,9,7,15,19,11,11,10,15,9,16,6,11,16,17,10,15,14,8,5,8,12,12,3,13,17,16,7,12,7,8},
+              solutions = 1, exhausted = false, nodes = 529 },
+        }
+        for _, lay in ipairs(LAYOUTS) do
+            it("explores the same tree as before: " .. lay.label, function()
+                local cages = {}
+                for id, sum in ipairs(lay.sums) do cages[id] = { id = id, sum = sum, cells = {} } end
+                for r = 1, 9 do
+                    for c = 1, 9 do
+                        local cells = cages[lay.cell_cage[r][c]].cells
+                        cells[#cells + 1] = { r = r, c = c }
+                    end
+                end
+                local solutions, exhausted, nodes =
+                    Mod._countCageSolutions(lay.cell_cage, cages, 9, 3, 3, 2, 6000)
+                assert.are.equal(lay.solutions, solutions)
+                assert.are.equal(lay.exhausted, exhausted)
+                assert.are.equal(lay.nodes, nodes)
+            end)
+        end
+
+        it("generates Hard and Expert grids quickly (1.6.0 took seconds each)", function()
+            local t0 = os.clock()
+            for seed = 1, 3 do
+                math.randomseed(seed)
+                KillerSudokuBoard:new():generate("hard")
+                KillerSudokuBoard:new():generate("expert")
+            end
+            -- Generous: about 0.1 s under LuaJIT and 6 s under busted's Lua
+            -- 5.5 with the bit shim; 1.6.0 needed ~18 s under LuaJIT alone.
+            assert.is_true(os.clock() - t0 < 30)
+        end)
+    end)
 end)

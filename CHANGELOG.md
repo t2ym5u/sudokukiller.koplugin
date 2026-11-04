@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.7.0] - 2026-11-04
+
+### Changed
+- New games are dealt in a blink instead of seconds, with the same cages:
+  the check that a cage layout has a single solution now works out which
+  digits each cage can still take once per cage, from precomputed sum
+  bounds, instead of building and sorting a list for every cell and digit at
+  every step. Worst case on a desktop: Hard 4.3 s → 20 ms, Expert 3.8 s →
+  15 ms, Medium 825 → 50 ms, Easy 229 → 20 ms -- on a Kobo, Hard went from
+  close to two minutes to about half a second.
+- The Easy/Medium "solvable without guessing" check walks the cage cells
+  instead of listing every digit combination and permutation (same verdicts,
+  about twice as fast).
+- Shared sudoku-common 1.6.0: the deduction check behind every clue the
+  generator digs out runs about twice as fast, with exactly the same
+  deductions, so a given seed still deals the same puzzle.
+
 ## [1.6.0] - 2026-11-02
 
 ### Changed
