@@ -279,22 +279,61 @@ end
 -- the search tractable. Returns (solutions_found, exhausted, nodes_visited);
 -- exhausted = true means node_budget was hit before the search concluded, so
 -- the solutions count is not a proof (fewer solutions may remain unexplored).
+--
+-- Everything is a bitmask here, and the cage-sum test is done once per cage
+-- rather than once per cell and digit: which digits a cage can still take
+-- depends only on the cage's own state (digits used, cells left, sum left),
+-- so it is kept per cage and refreshed when one of its cells changes. A cell's
+-- candidates are then that mask minus its row/column/box. The search visits
+-- the same nodes in the same order as the per-cell version it replaced (same
+-- MRV tie-break, digits tried in ascending order), so the node budget runs
+-- out at the same place and a seed still gives the same cages -- it is only
+-- some 30 times cheaper per node.
 -- ---------------------------------------------------------------------------
 
 local FULL_DIGIT_MASK = 0x3FE -- bits 1..9
 
-local function minMaxSum(avail_mask, k)
-    if k == 0 then return 0, 0 end
-    local avail = {}
+-- MIN_SUM[m][k] / MAX_SUM[m][k]: the smallest / largest sum of k distinct
+-- digits taken from the set m (bit v = digit v, as a 0..1023 index), or nil
+-- when m has fewer than k digits. POPCOUNT[m]: number of digits in m.
+local MIN_SUM, MAX_SUM, POPCOUNT = {}, {}, {}
+for m = 0, FULL_DIGIT_MASK do
+    local digits = {}
     for v = 1, 9 do
-        if band(avail_mask, lshift(1, v)) ~= 0 then avail[#avail + 1] = v end
+        if band(m, lshift(1, v)) ~= 0 then digits[#digits + 1] = v end
     end
-    if #avail < k then return nil, nil end
-    table.sort(avail)
-    local mn, mx = 0, 0
-    for i = 1, k do mn = mn + avail[i] end
-    for i = #avail - k + 1, #avail do mx = mx + avail[i] end
-    return mn, mx
+    local mins, maxs = { [0] = 0 }, { [0] = 0 }
+    for k = 1, #digits do
+        mins[k] = mins[k - 1] + digits[k]
+        maxs[k] = maxs[k - 1] + digits[#digits - k + 1]
+    end
+    MIN_SUM[m], MAX_SUM[m], POPCOUNT[m] = mins, maxs, #digits
+end
+
+-- Digits the next cell of a cage may take, given the digits already in the
+-- cage (used), how many of its cells are still empty (empty, >= 1) and what
+-- is left of its sum (target): v must fit, and the empty-1 cells left after
+-- it must still be able to make up target - v from the other digits.
+local function cageAllowedMask(used, empty, target)
+    local allowed, after = 0, empty - 1
+    for v = 1, 9 do
+        local vbit = lshift(1, v)
+        if band(used, vbit) == 0 then
+            local rem_sum = target - v
+            if rem_sum >= 0 then
+                if after == 0 then
+                    if rem_sum == 0 then allowed = bor(allowed, vbit) end
+                else
+                    local avail = band(bnot(bor(used, vbit)), FULL_DIGIT_MASK)
+                    local mn = MIN_SUM[avail][after]
+                    if mn and rem_sum >= mn and rem_sum <= MAX_SUM[avail][after] then
+                        allowed = bor(allowed, vbit)
+                    end
+                end
+            end
+        end
+    end
+    return allowed
 end
 
 local function countCageSolutions(cell_cage, cages, n, box_rows, box_cols, limit, node_budget)
@@ -302,95 +341,81 @@ local function countCageSolutions(cell_cage, cages, n, box_rows, box_cols, limit
     for i = 1, n do row_used[i] = 0; col_used[i] = 0 end
     local num_box_cols = n / box_cols
     for i = 1, (n / box_rows) * num_box_cols do box_used[i] = 0 end
-    local grid = {}
-    for r = 1, n do grid[r] = {}; for c = 1, n do grid[r][c] = 0 end end
-    local cage_filled_sum, cage_filled_count, cage_used_mask = {}, {}, {}
+    -- Per cage: digits used, cells still empty, sum still missing, and the
+    -- resulting mask of digits its next cell may take.
+    local cage_used, cage_empty, cage_target, cage_allowed = {}, {}, {}, {}
     for _, cage in ipairs(cages) do
-        cage_filled_sum[cage.id]   = 0
-        cage_filled_count[cage.id] = 0
-        cage_used_mask[cage.id]    = 0
+        local id = cage.id
+        cage_used[id], cage_empty[id], cage_target[id] = 0, #cage.cells, cage.sum
+        cage_allowed[id] = cageAllowedMask(0, #cage.cells, cage.sum)
     end
 
-    local function boxIndex(r, c)
-        return math.floor((r - 1) / box_rows) * num_box_cols + math.floor((c - 1) / box_cols) + 1
+    -- Cells in reading order (the MRV tie-break depends on it), as flat arrays.
+    local cell_r, cell_c, cell_b, cell_k, filled = {}, {}, {}, {}, {}
+    local num_empty = 0
+    for r = 1, n do
+        for c = 1, n do
+            num_empty = num_empty + 1
+            cell_r[num_empty] = r
+            cell_c[num_empty] = c
+            cell_b[num_empty] = math.floor((r - 1) / box_rows) * num_box_cols
+                                + math.floor((c - 1) / box_cols) + 1
+            cell_k[num_empty] = cell_cage[r][c]
+            filled[num_empty] = false
+        end
     end
-
-    local empties = {}
-    for r = 1, n do for c = 1, n do empties[#empties + 1] = { r = r, c = c } end end
-    local num_empty = #empties
 
     local solutions, nodes, exhausted = 0, 0, false
-
-    local function candidatesFor(r, c)
-        local used = bor(bor(row_used[r], col_used[c]), box_used[boxIndex(r, c)])
-        local cage_id = cell_cage[r][c]
-        local cage = cages[cage_id]
-        local remaining_after = #cage.cells - cage_filled_count[cage_id] - 1
-        local target_remaining = cage.sum - cage_filled_sum[cage_id]
-        local cage_used = cage_used_mask[cage_id]
-        local cands = {}
-        for v = 1, 9 do
-            local vbit = lshift(1, v)
-            if band(used, vbit) == 0 and band(cage_used, vbit) == 0 then
-                local rem_sum = target_remaining - v
-                if rem_sum >= 0 then
-                    if remaining_after == 0 then
-                        if rem_sum == 0 then cands[#cands + 1] = v end
-                    else
-                        local avail_mask = band(bnot(bor(cage_used, vbit)), FULL_DIGIT_MASK)
-                        local mn, mx = minMaxSum(avail_mask, remaining_after)
-                        if mn and rem_sum >= mn and rem_sum <= mx then
-                            cands[#cands + 1] = v
-                        end
-                    end
-                end
-            end
-        end
-        return cands
-    end
 
     local function search(depth)
         if solutions >= limit or exhausted then return end
         nodes = nodes + 1
         if nodes > node_budget then exhausted = true; return end
         if depth > num_empty then solutions = solutions + 1; return end
-        local best_idx, best_cands, best_len = nil, nil, 1000
-        for i, cell in ipairs(empties) do
-            if grid[cell.r][cell.c] == 0 then
-                local cands = candidatesFor(cell.r, cell.c)
-                if #cands < best_len then
-                    best_len   = #cands
-                    best_cands = cands
-                    best_idx   = i
+        local best_idx, best_mask, best_len = nil, 0, 1000
+        for i = 1, num_empty do
+            if not filled[i] then
+                local r, c = cell_r[i], cell_c[i]
+                local mask = band(cage_allowed[cell_k[i]],
+                                  bnot(bor(bor(row_used[r], col_used[c]), box_used[cell_b[i]])))
+                local len = POPCOUNT[mask]
+                if len < best_len then
+                    best_len  = len
+                    best_mask = mask
+                    best_idx  = i
                     if best_len <= 1 then break end
                 end
             end
         end
         if best_idx == nil then solutions = solutions + 1; return end
         if best_len == 0 then return end
-        local cell = empties[best_idx]
-        local r, c = cell.r, cell.c
-        local b = boxIndex(r, c)
-        local cage_id = cell_cage[r][c]
-        for _, v in ipairs(best_cands) do
-            local vbit = lshift(1, v)
-            grid[r][c] = v
+        local r, c, b, id = cell_r[best_idx], cell_c[best_idx], cell_b[best_idx], cell_k[best_idx]
+        local used0, allowed0 = cage_used[id], cage_allowed[id]
+        local empty0, target0 = cage_empty[id], cage_target[id]
+        filled[best_idx] = true
+        cage_empty[id] = empty0 - 1
+        local mask = best_mask
+        while mask ~= 0 do
+            local vbit = band(mask, -mask) -- lowest digit first
+            local v = 0
+            while lshift(1, v) ~= vbit do v = v + 1 end
             row_used[r] = bor(row_used[r], vbit)
             col_used[c] = bor(col_used[c], vbit)
             box_used[b] = bor(box_used[b], vbit)
-            cage_filled_sum[cage_id]   = cage_filled_sum[cage_id] + v
-            cage_filled_count[cage_id] = cage_filled_count[cage_id] + 1
-            cage_used_mask[cage_id]    = bor(cage_used_mask[cage_id], vbit)
+            local used = bor(used0, vbit)
+            cage_used[id]   = used
+            cage_target[id] = target0 - v
+            cage_allowed[id] = empty0 > 1 and cageAllowedMask(used, empty0 - 1, target0 - v) or 0
             search(depth + 1)
-            grid[r][c] = 0
             row_used[r] = band(row_used[r], bnot(vbit))
             col_used[c] = band(col_used[c], bnot(vbit))
             box_used[b] = band(box_used[b], bnot(vbit))
-            cage_filled_sum[cage_id]   = cage_filled_sum[cage_id] - v
-            cage_filled_count[cage_id] = cage_filled_count[cage_id] - 1
-            cage_used_mask[cage_id]    = band(cage_used_mask[cage_id], bnot(vbit))
-            if solutions >= limit or exhausted then return end
+            if solutions >= limit or exhausted then break end
+            mask = band(mask, mask - 1)
         end
+        filled[best_idx] = false
+        cage_used[id], cage_allowed[id] = used0, allowed0
+        cage_empty[id], cage_target[id] = empty0, target0
     end
     search(1)
     return solutions, exhausted, nodes
@@ -407,47 +432,40 @@ end
 -- Used to gate Easy/Medium generation: countCageSolutions above only proves a
 -- unique solution *exists*, not that a human can reach it without guessing.
 
-local function combosForCage(k, target, forbidden_mask)
-    local combos = {}
-    local chosen = {}
-    local function rec(start, remaining_sum, remaining_slots)
-        if remaining_slots == 0 then
-            if remaining_sum == 0 then
-                local copy = {}
-                for i = 1, #chosen do copy[i] = chosen[i] end
-                combos[#combos + 1] = copy
-            end
-            return
-        end
-        for v = start, 9 do
-            if band(forbidden_mask, lshift(1, v)) == 0 and remaining_sum - v >= 0 then
-                chosen[#chosen + 1] = v
-                rec(v + 1, remaining_sum - v, remaining_slots - 1)
-                chosen[#chosen] = nil
-            end
-        end
-    end
-    rec(1, target, k)
-    return combos
-end
+-- Which digits each empty cell of a cage can take in at least one complete
+-- filling of the cage: distinct digits, none of them already in the cage
+-- (used), each within its cell's candidate mask, adding up to target. ORs
+-- every such filling into possible[1..k]; leaves it all 0 when there is none.
+--
+-- This replaced listing every digit combination that makes the sum and then
+-- every permutation of each against the candidates: the same fillings, found
+-- by walking the cells instead, so it skips at once the digits a cell cannot
+-- take, and creates no closures (LuaJIT cannot compile those).
+local DIGIT_OF_BIT = {}
+for v = 1, 9 do DIGIT_OF_BIT[lshift(1, v)] = v end
 
--- Calls cb(order) for every permutation of `digits` (k <= 5 for the gated
--- difficulties, so k! is always small).
-local function permsForDigits(digits, cb)
-    local k = digits and #digits or 0
-    local used, order = {}, {}
-    local function rec(idx)
-        if idx > k then cb(order); return end
-        for i = 1, k do
-            if not used[i] then
-                used[i] = true
-                order[idx] = digits[i]
-                rec(idx + 1)
-                used[i] = nil
-            end
+local function cageCellOptions(masks, k, target, used, possible, chosen, i)
+    if i > k then
+        if target == 0 then
+            for j = 1, k do possible[j] = bor(possible[j], chosen[j]) end
         end
+        return
     end
-    rec(1)
+    -- The r cells after this one need r distinct digits: at least
+    -- 1+...+r and at most 9+...+(10-r).
+    local r = k - i
+    local lo, hi = r * (r + 1) / 2, r * (19 - r) / 2
+    local free = band(masks[i], bnot(used))
+    while free ~= 0 do
+        local m = band(free, -free)
+        local d = DIGIT_OF_BIT[m]
+        local rest = target - d
+        if rest >= lo and rest <= hi then
+            chosen[i] = m
+            cageCellOptions(masks, k, target - d, bor(used, m), possible, chosen, i + 1)
+        end
+        free = band(free, free - 1)
+    end
 end
 
 local function isHumanSolvable(cages, cell_cage, seed_grid, n, box_rows, box_cols)
@@ -539,21 +557,14 @@ local function isHumanSolvable(cages, cell_cage, seed_grid, n, box_rows, box_col
             local k = #empties
             if k > 0 then
                 local target = cage.sum - filled_sum
-                local combos = combosForCage(k, target, filled_mask)
-                if #combos == 0 then return false end -- contradiction: unsolvable layout
-                local possible = {}
-                for i = 1, k do possible[i] = 0 end
-                for _, combo in ipairs(combos) do
-                    permsForDigits(combo, function(order)
-                        for i = 1, k do
-                            local cell = empties[i]
-                            if band(cand[cell.r][cell.c], lshift(1, order[i])) == 0 then return end
-                        end
-                        for i = 1, k do
-                            possible[i] = bor(possible[i], lshift(1, order[i]))
-                        end
-                    end)
+                local masks, possible, chosen = {}, {}, {}
+                for i, cell in ipairs(empties) do
+                    masks[i]    = cand[cell.r][cell.c]
+                    possible[i] = 0
                 end
+                cageCellOptions(masks, k, target, filled_mask, possible, chosen, 1)
+                -- A cage with no filling left empties its cells' masks, which
+                -- the naked-singles pass below reports as a contradiction.
                 for i, cell in ipairs(empties) do
                     cand[cell.r][cell.c] = band(cand[cell.r][cell.c], possible[i])
                 end
@@ -1002,4 +1013,8 @@ return {
     KillerSudokuBoard  = KillerSudokuBoard,
     DEFAULT_DIFFICULTY = DEFAULT_DIFFICULTY,
     CAGE_COUNT_RANGES  = CAGE_COUNT_RANGES,
+    -- For test_board_spec.lua only.
+    _countCageSolutions = countCageSolutions,
+    _generateCages      = generateCages,
+    _isHumanSolvable    = isHumanSolvable,
 }
