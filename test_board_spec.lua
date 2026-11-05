@@ -233,6 +233,38 @@ describe("KillerSudokuBoard", function()
     -- a sorted table per cell and digit). It must explore exactly the same
     -- search tree: the node budget decides which cage layout a seed ends up
     -- with, so these are the counts the 1.6.0 solver gave on three layouts.
+    describe("difficulty", function()
+        -- Steps beyond singles a grid needs, or nil if logic cannot finish it.
+        local function hardSteps(b)
+            local LS = require("logic_solver")
+            local res = LS.solve(b.user, 9, 3, 3, nil,
+                { cages = b.cages, max_tier = LS.TIER.LOCKED, trace = true })
+            if not res.solved then return nil end
+            local hard = 0
+            for _, step in ipairs(res.steps) do
+                if step.technique ~= "naked_single" and step.technique ~= "hidden_single"
+                    and step.technique ~= "cage_last_cell" then
+                    hard = hard + 1
+                end
+            end
+            return hard
+        end
+
+        -- Before the cap, Easy needed about 12 such steps, like Medium.
+        for _, case in ipairs({ { "easy", 3 }, { "medium", 8 } }) do
+            it(case[1] .. " grids need at most " .. case[2] .. " steps beyond singles", function()
+                for seed = 1, 8 do
+                    math.randomseed(seed)
+                    local b = KillerSudokuBoard:new()
+                    b:generate(case[1])
+                    local hard = hardSteps(b)
+                    assert.is_not_nil(hard)
+                    assert.is_true(hard <= case[2])
+                end
+            end)
+        end
+    end)
+
     describe("cage-sum solver", function()
         local LAYOUTS = {
             { label = "medium layout with two solutions",

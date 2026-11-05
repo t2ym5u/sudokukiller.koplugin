@@ -44,12 +44,12 @@ Standard Sudoku rules (fill 1–9; no repeats in rows, columns, or 3×3 boxes) p
 
 ## Known limitations
 
-Easy and Medium puzzles are generated to be solvable by deduction alone
-(no guessing), but that's verified within a bounded retry budget. In rare
-cases the generator can't find a human-solvable layout in time and falls
-back to a puzzle that's still guaranteed to have a unique solution, just
-not guaranteed to be reachable without some trial and error. Hard and
-Expert are unaffected — guessing is a normal part of solving those tiers.
+Easy and Medium puzzles are always solvable by deduction alone (no
+guessing): the generator adds given digits until they are. It also caps how
+much cage reasoning they ask for — working out which digits fit a cage, or
+the 45 rule: at most 3 such steps on Easy, 8 on Medium, the rest is plain
+singles. Hard and Expert carry no given digits, as in a classic Killer
+Sudoku, and the cages alone do not always decide them.
 
 ## License
 

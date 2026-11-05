@@ -856,7 +856,47 @@ local function rebuildCellCage(cages, n)
     return map
 end
 
-local function ensureDeducible(solution, cages, cell_cage, n, box_rows, box_cols, on_progress)
+-- Being deducible is not the same as being easy. Measured before this cap
+-- (30 grids per level), Easy and Medium were alike: every grid needed about
+-- 12 steps beyond singles -- working out which digits fit a cage given its
+-- sum and the digits around it, or a 45-rule innie/outie -- and Easy even
+-- dealt fewer givens than Medium. So each level also caps how many such
+-- steps the solver may take, with nothing above locked candidates / pairs;
+-- past the cap, the grid counts as stuck and gets one more given, exactly as
+-- when it cannot be deduced at all.
+local DEDUCTION_TIER = logic_solver.TIER.LOCKED
+local HARD_STEP_BUDGET = {
+    easy   = 3,
+    medium = 8,
+}
+local SIMPLE_STEPS = { naked_single = true, hidden_single = true, cage_last_cell = true }
+
+-- Solve from `grid` within the level's tier and budget. Returns whether it
+-- finished, the grid as far as the solver got, and -- when it ran out of
+-- budget -- the step it could not afford, whose cells are where a given
+-- would save the reasoning.
+local function deduceWithinBudget(grid, cages, n, box_rows, box_cols, budget)
+    local res = logic_solver.solve(grid, n, box_rows, box_cols, nil,
+        { cages = cages, max_tier = DEDUCTION_TIER, trace = true })
+    local reached = {}
+    for r = 1, n do
+        reached[r] = {}
+        for c = 1, n do reached[r][c] = grid[r][c] end
+    end
+    local hard = 0
+    for _, step in ipairs(res.steps) do
+        if not SIMPLE_STEPS[step.technique] then
+            hard = hard + 1
+            if hard > budget then return false, reached, step end
+        end
+        if step.placements then
+            for _, p in ipairs(step.placements) do reached[p.r][p.c] = p.digit end
+        end
+    end
+    return res.solved, reached
+end
+
+local function ensureDeducible(solution, cages, cell_cage, n, box_rows, box_cols, budget, on_progress)
     -- Each pass either finishes or adds one given, so the work is bounded by
     -- the number of cells; report against that so the progress bar keeps
     -- moving through what is the slowest part of generating a killer grid.
@@ -865,14 +905,20 @@ local function ensureDeducible(solution, cages, cell_cage, n, box_rows, box_cols
         guard = guard - 1
         if on_progress then on_progress(added, added + 4) end
         local grid = startingGrid(cages, solution, n)
-        local res  = logic_solver.solve(grid, n, box_rows, box_cols, nil, { cages = cages })
-        if res.solved then break end
+        local solved, reached, unaffordable = deduceWithinBudget(grid, cages, n, box_rows, box_cols, budget)
+        if solved then break end
 
-        -- First unresolved cell in reading order: where the deduction stopped.
+        -- A cell of the step over budget; otherwise (the solver stalled) the
+        -- first unresolved cell in reading order: where the deduction stopped.
+        -- Reading order alone piled the givens into the top rows.
         local pick
+        for _, cell in ipairs(unaffordable and unaffordable.focus or {}) do
+            if reached[cell.r][cell.c] == 0 then pick = { r = cell.r, c = cell.c } break end
+        end
         for r = 1, n do
+            if pick then break end
             for c = 1, n do
-                if res.grid[r][c] == 0 and grid[r][c] == 0 then pick = { r = r, c = c } break end
+                if reached[r][c] == 0 and grid[r][c] == 0 then pick = { r = r, c = c } break end
             end
             if pick then break end
         end
@@ -905,8 +951,9 @@ function KillerSudokuBoard:generate(difficulty, randInt, on_progress)
     local n, box_rows, box_cols = self.n, self.box_rows, self.box_cols
     local solution = generateSolvedBoard(n, box_rows, box_cols, nil, randInt)
     local cages, cell_cage = generateVerifiedCages(solution, self.difficulty, n, box_rows, box_cols, on_progress)
-    if self.difficulty == "easy" or self.difficulty == "medium" then
-        cages, cell_cage = ensureDeducible(solution, cages, cell_cage, n, box_rows, box_cols, on_progress)
+    local budget = HARD_STEP_BUDGET[self.difficulty]
+    if budget then
+        cages, cell_cage = ensureDeducible(solution, cages, cell_cage, n, box_rows, box_cols, budget, on_progress)
     end
     self.solution        = solution
     self.cages           = cages

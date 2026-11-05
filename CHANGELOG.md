@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.9.0] - 2026-11-05
+
+### Changed
+- Easy is really easy now, and Medium sits between Easy and Hard. Easy and
+  Medium used to ask for the same amount of cage reasoning (about 12 steps
+  of working out which digits fit a cage, per grid), and Easy even dealt
+  fewer given digits. Easy now asks for at most 3 such steps (about 2 on
+  average, with 22 given digits), Medium at most 8 (about 6, with 19 given
+  digits); Hard needs about 14. The given digits are also spread over the
+  grid instead of piling up in the top rows.
+
 ## [1.8.1] - 2026-11-04
 
 ### Fixed
