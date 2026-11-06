@@ -777,6 +777,52 @@ function KillerSudokuBoard:serialize()
     }
 end
 
+-- 1.9.0 could split a given out of the middle of a cage, leaving two pieces
+-- under one sum. A game saved then is repaired on load: each piece becomes
+-- its own cage, its sum read from the solution, so the grid shows cages that
+-- are each in one piece and add up. Returns the cages and a fresh cell map.
+local function splitDisconnectedCages(cages, solution, n)
+    local out = {}
+    for _, cage in ipairs(cages) do
+        local inside = {}
+        for _, cell in ipairs(cage.cells) do inside[cell.r * 16 + cell.c] = cell end
+        local seen = {}
+        for _, start in ipairs(cage.cells) do
+            local key = start.r * 16 + start.c
+            if not seen[key] then
+                seen[key] = true
+                local piece, stack, sum = { start }, { start }, solution[start.r][start.c]
+                while #stack > 0 do
+                    local cell = table.remove(stack)
+                    for _, d in ipairs({ { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }) do
+                        local k = (cell.r + d[1]) * 16 + cell.c + d[2]
+                        local nb = inside[k]
+                        if nb and not seen[k] then
+                            seen[k] = true
+                            piece[#piece + 1] = nb
+                            stack[#stack + 1] = nb
+                            sum = sum + solution[nb.r][nb.c]
+                        end
+                    end
+                end
+                local id = #out + 1
+                out[id] = { id = id, cells = piece,
+                            sum = (#piece == #cage.cells) and cage.sum or sum,
+                            is_given = cage.is_given }
+            end
+        end
+    end
+    local map = {}
+    for r = 1, n do
+        map[r] = {}
+        for c = 1, n do map[r][c] = 0 end
+    end
+    for _, cage in ipairs(out) do
+        for _, cell in ipairs(cage.cells) do map[cell.r][cell.c] = cage.id end
+    end
+    return out, map
+end
+
 function KillerSudokuBoard:load(state)
     if not state or not state.solution or not state.user or not state.cages then
         return false
@@ -794,8 +840,14 @@ function KillerSudokuBoard:load(state)
     self.difficulty = state.difficulty or DEFAULT_DIFFICULTY
     self.undo_stack = {}
     self.reveal_solution = state.reveal_solution or false
-    self.cages      = state.cages or {}
-    self.cell_cage  = state.cell_cage and copyGrid(state.cell_cage, n) or emptyGrid(n)
+    self.cages, self.cell_cage = splitDisconnectedCages(state.cages or {}, self.solution, n)
+    -- A 1-cell cage is a given: a piece split off above may be one.
+    for _, cage in ipairs(self.cages) do
+        local cell = cage.cells[1]
+        if #cage.cells == 1 and self.user[cell.r][cell.c] == 0 then
+            self.user[cell.r][cell.c] = self.solution[cell.r][cell.c]
+        end
+    end
     if state.selected then
         self.selected = {
             row = math.max(1, math.min(n, state.selected.row or 1)),
@@ -911,14 +963,45 @@ local function ensureDeducible(solution, cages, cell_cage, n, box_rows, box_cols
         -- A cell of the step over budget; otherwise (the solver stalled) the
         -- first unresolved cell in reading order: where the deduction stopped.
         -- Reading order alone piled the givens into the top rows.
+        -- Only a cell whose removal leaves its cage in one piece: 1.9.0 split
+        -- the middle of a cage, leaving two parts under one sum.
+        local function splittable(r, c)
+            local parent = cages[cell_cage[r][c]]
+            if not parent or #parent.cells <= 1 then return false end
+            local rest, start = {}, nil
+            for _, cell in ipairs(parent.cells) do
+                if cell.r ~= r or cell.c ~= c then
+                    rest[cell.r * 16 + cell.c] = true
+                    start = start or cell
+                end
+            end
+            local seen, stack, count = { [start.r * 16 + start.c] = true }, { start }, 1
+            while #stack > 0 do
+                local cell = table.remove(stack)
+                for _, d in ipairs({ { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }) do
+                    local nr, nc = cell.r + d[1], cell.c + d[2]
+                    local k = nr * 16 + nc
+                    if rest[k] and not seen[k] then
+                        seen[k] = true
+                        count = count + 1
+                        stack[#stack + 1] = { r = nr, c = nc }
+                    end
+                end
+            end
+            return count == #parent.cells - 1
+        end
         local pick
         for _, cell in ipairs(unaffordable and unaffordable.focus or {}) do
-            if reached[cell.r][cell.c] == 0 then pick = { r = cell.r, c = cell.c } break end
+            if reached[cell.r][cell.c] == 0 and splittable(cell.r, cell.c) then
+                pick = { r = cell.r, c = cell.c } break
+            end
         end
         for r = 1, n do
             if pick then break end
             for c = 1, n do
-                if reached[r][c] == 0 and grid[r][c] == 0 then pick = { r = r, c = c } break end
+                if reached[r][c] == 0 and grid[r][c] == 0 and splittable(r, c) then
+                    pick = { r = r, c = c } break
+                end
             end
             if pick then break end
         end

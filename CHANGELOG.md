@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.9.1] - 2026-11-06
+
+### Fixed
+- Easy and Medium grids no longer show a cage cut in two: 1.9.0 could turn
+  a cell in the middle of a cage into a given digit, leaving two separate
+  pieces under one sum (most new grids had one). Givens are now only taken
+  where the rest of the cage stays in one piece.
+- A game saved with 1.9.0 is repaired when it opens: each piece of a cut
+  cage becomes its own cage with its own sum, and your digits and notes
+  are kept.
+
 ## [1.9.0] - 2026-11-05
 
 ### Changed
