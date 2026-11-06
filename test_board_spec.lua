@@ -250,6 +250,78 @@ describe("KillerSudokuBoard", function()
             return hard
         end
 
+        -- 1.9.0 split givens out of the middle of cages, leaving two pieces
+        -- under one sum (475 of 600 Easy/Medium grids had one).
+        it("keeps every cage in one piece", function()
+            for _, diff in ipairs({ "easy", "medium" }) do
+                for seed = 1, 20 do
+                    math.randomseed(seed)
+                    local b = KillerSudokuBoard:new()
+                    b:generate(diff)
+                    for _, cage in ipairs(b.cages) do
+                        local inside, first = {}, cage.cells[1]
+                        for _, cell in ipairs(cage.cells) do inside[cell.r * 16 + cell.c] = true end
+                        local seen, stack, count = { [first.r * 16 + first.c] = true }, { first }, 1
+                        while #stack > 0 do
+                            local cell = table.remove(stack)
+                            for _, d in ipairs({ { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }) do
+                                local k = (cell.r + d[1]) * 16 + cell.c + d[2]
+                                if inside[k] and not seen[k] then
+                                    seen[k] = true
+                                    count = count + 1
+                                    stack[#stack + 1] = { r = cell.r + d[1], c = cell.c + d[2] }
+                                end
+                            end
+                        end
+                        assert.are.equal(#cage.cells, count)
+                    end
+                end
+            end
+        end)
+
+        it("repairs a 1.9.0 save whose cage was split in two", function()
+            math.randomseed(3)
+            local b = KillerSudokuBoard:new()
+            b:generate("easy")
+            local state = b:serialize()
+            -- Merge a 1-cell given with a cage that doesn't touch it, as 1.9.0 left them.
+            local single, far
+            for _, cage in ipairs(state.cages) do
+                if #cage.cells == 1 and not single then single = cage end
+            end
+            for _, cage in ipairs(state.cages) do
+                local touches = false
+                for _, cell in ipairs(cage.cells) do
+                    if math.abs(cell.r - single.cells[1].r) + math.abs(cell.c - single.cells[1].c) <= 1 then
+                        touches = true
+                    end
+                end
+                if cage ~= single and #cage.cells >= 2 and not touches then far = cage break end
+            end
+            for _, cell in ipairs(single.cells) do far.cells[#far.cells + 1] = cell end
+            far.sum = far.sum + single.sum
+            local cages = {}
+            for _, cage in ipairs(state.cages) do
+                if cage ~= single then cages[#cages + 1] = cage; cage.id = #cages end
+            end
+            state.cages = cages
+            local sc = single.cells[1]
+            state.user[sc.r][sc.c] = 0
+
+            local b2 = KillerSudokuBoard:new()
+            assert.is_true(b2:load(state))
+            for id, cage in ipairs(b2.cages) do
+                local sum = 0
+                for _, cell in ipairs(cage.cells) do
+                    sum = sum + b2.solution[cell.r][cell.c]
+                    assert.are.equal(id, b2.cell_cage[cell.r][cell.c])
+                end
+                assert.are.equal(sum, cage.sum)
+            end
+            assert.is_true(b2:isGiven(sc.r, sc.c))
+            assert.are.equal(b2.solution[sc.r][sc.c], b2.user[sc.r][sc.c])
+        end)
+
         -- Before the cap, Easy needed about 12 such steps, like Medium.
         for _, case in ipairs({ { "easy", 3 }, { "medium", 8 } }) do
             it(case[1] .. " grids need at most " .. case[2] .. " steps beyond singles", function()
