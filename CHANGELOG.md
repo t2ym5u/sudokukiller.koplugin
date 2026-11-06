@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.9.2] - 2026-11-06
+
+### Changed
+- Shared sudoku-common 1.9.0 (harder Medium/Hard/Expert in the other sudoku
+  games). Killer grids, their generation and hints are unchanged.
+
 ## [1.9.1] - 2026-11-06
 
 ### Fixed
