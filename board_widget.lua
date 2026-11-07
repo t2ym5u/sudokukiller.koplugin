@@ -26,6 +26,11 @@ local Screen = Device.screen
 
 local CAGE_BORDER_COLOR = Blitbuffer.COLOR_GRAY_E
 
+-- Size.line.thin is 1 px on a Kobo Aura, and a 1 px line all but vanishes on
+-- e-ink: every grid line is at least 2 px, the outer border at least 3 px.
+local LINE_W   = math.max(2, Size.line.thin)
+local BORDER_W = math.max(3, Size.line.thick)
+
 -- ---------------------------------------------------------------------------
 -- KillerSudokuBoardWidget
 -- ---------------------------------------------------------------------------
@@ -91,7 +96,7 @@ function KillerSudokuBoardWidget:paintTo(bb, x, y)
                 local x1    = math.floor(x + col * cell)
                 local color = self.board:isCageBoundary(row, col, row + 1, col)
                     and Blitbuffer.COLOR_BLACK or CAGE_BORDER_COLOR
-                drawLine(bb, x0, math.floor(y + row * cell), x1 - x0, Size.line.thin, color)
+                drawLine(bb, x0, math.floor(y + row * cell), x1 - x0, LINE_W, color)
             end
         end
     end
@@ -104,7 +109,7 @@ function KillerSudokuBoardWidget:paintTo(bb, x, y)
                 local y1    = math.floor(y + row * cell)
                 local color = self.board:isCageBoundary(row, col, row, col + 1)
                     and Blitbuffer.COLOR_BLACK or CAGE_BORDER_COLOR
-                drawLine(bb, math.floor(x + col * cell), y0, Size.line.thin, y1 - y0, color)
+                drawLine(bb, math.floor(x + col * cell), y0, LINE_W, y1 - y0, color)
             end
         end
     end
@@ -116,17 +121,17 @@ function KillerSudokuBoardWidget:paintTo(bb, x, y)
         if i % box_cols == 0 then
             local lx = x + math.floor(i * cell)
             if i == 0 or i == n then
-                drawLine(bb, lx, y, Size.line.thick, self.dimen.h, Blitbuffer.COLOR_BLACK)
+                drawLine(bb, lx, y, BORDER_W, self.dimen.h, Blitbuffer.COLOR_BLACK)
             else
-                drawDashedLine(bb, lx, y, Size.line.thin, self.dimen.h, Blitbuffer.COLOR_GRAY_9, dash, gap)
+                drawDashedLine(bb, lx, y, LINE_W, self.dimen.h, Blitbuffer.COLOR_GRAY_9, dash, gap)
             end
         end
         if i % box_rows == 0 then
             local ly = y + math.floor(i * cell)
             if i == 0 or i == n then
-                drawLine(bb, x, ly, self.dimen.w, Size.line.thick, Blitbuffer.COLOR_BLACK)
+                drawLine(bb, x, ly, self.dimen.w, BORDER_W, Blitbuffer.COLOR_BLACK)
             else
-                drawDashedLine(bb, x, ly, self.dimen.w, Size.line.thin, Blitbuffer.COLOR_GRAY_9, dash, gap)
+                drawDashedLine(bb, x, ly, self.dimen.w, LINE_W, Blitbuffer.COLOR_GRAY_9, dash, gap)
             end
         end
     end
@@ -141,7 +146,7 @@ function KillerSudokuBoardWidget:paintTo(bb, x, y)
                 if id1 ~= id2 then
                     local x0 = math.floor(x + (col - 1) * cell)
                     local x1 = math.floor(x + col * cell)
-                    drawLine(bb, x0, ly, x1 - x0, Size.line.thin, Blitbuffer.COLOR_BLACK)
+                    drawLine(bb, x0, ly, x1 - x0, LINE_W, Blitbuffer.COLOR_BLACK)
                 end
             end
         end
@@ -155,7 +160,7 @@ function KillerSudokuBoardWidget:paintTo(bb, x, y)
                 if id1 ~= id2 then
                     local y0 = math.floor(y + (row - 1) * cell)
                     local y1 = math.floor(y + row * cell)
-                    drawLine(bb, lx, y0, Size.line.thin, y1 - y0, Blitbuffer.COLOR_BLACK)
+                    drawLine(bb, lx, y0, LINE_W, y1 - y0, Blitbuffer.COLOR_BLACK)
                 end
             end
         end
