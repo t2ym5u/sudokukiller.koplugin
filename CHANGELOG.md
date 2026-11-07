@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.9.3] - 2026-11-07
+
+### Changed
+- Thicker grid lines, easier to read on e-ink: cage borders, cell lines
+  and the dashed 3×3 box lines are now 2 px instead of 1 px, and the outer
+  border 3 px instead of 2 px.
+
 ## [1.9.2] - 2026-11-06
 
 ### Changed
