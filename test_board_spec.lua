@@ -35,39 +35,6 @@ describe("KillerSudokuBoard", function()
         end)
     end)
 
-    describe("isGiven", function()
-        it("Easy has deliberate given digits (anchors for human-solvable deduction)", function()
-            math.randomseed(42)
-            local b = KillerSudokuBoard:new()
-            b:generate("easy")
-            local given_count = 0
-            for r = 1, b.n do
-                for c = 1, b.n do
-                    if b:isGiven(r, c) then
-                        given_count = given_count + 1
-                        assert.are.equal(b.solution[r][c], b.user[r][c])
-                    end
-                end
-            end
-            assert.is_true(given_count > 0)
-        end)
-
-        it("Hard stays genre-pure Killer Sudoku (no deliberate givens)", function()
-            math.randomseed(42)
-            local b = KillerSudokuBoard:new()
-            b:generate("hard")
-            local given_count = 0
-            for r = 1, b.n do
-                for c = 1, b.n do
-                    if b:isGiven(r, c) then given_count = given_count + 1 end
-                end
-            end
-            -- A rare growth-stranded singleton can still slip through, but
-            -- Hard should never carry the Easy/Medium deliberate-given count.
-            assert.is_true(given_count <= 2)
-        end)
-    end)
-
     describe("generate / cages", function()
         it("generates cages that cover every cell", function()
             math.randomseed(42)
@@ -229,27 +196,9 @@ describe("KillerSudokuBoard", function()
         end)
     end)
 
-    -- 1.7.0 rewrote the cage-sum solver for speed (one cage mask instead of
-    -- a sorted table per cell and digit). It must explore exactly the same
-    -- search tree: the node budget decides which cage layout a seed ends up
-    -- with, so these are the counts the 1.6.0 solver gave on three layouts.
-    describe("difficulty", function()
-        -- Steps beyond singles a grid needs, or nil if logic cannot finish it.
-        local function hardSteps(b)
-            local LS = require("logic_solver")
-            local res = LS.solve(b.user, 9, 3, 3, nil,
-                { cages = b.cages, max_tier = LS.TIER.LOCKED, trace = true })
-            if not res.solved then return nil end
-            local hard = 0
-            for _, step in ipairs(res.steps) do
-                if step.technique ~= "naked_single" and step.technique ~= "hidden_single"
-                    and step.technique ~= "cage_last_cell" then
-                    hard = hard + 1
-                end
-            end
-            return hard
-        end
-
+    -- Difficulty guarantees (givens per level, step caps, generation time)
+    -- live in test_difficulty_spec.lua.
+    describe("givens split out of cages", function()
         -- 1.9.0 split givens out of the middle of cages, leaving two pieces
         -- under one sum (475 of 600 Easy/Medium grids had one).
         it("keeps every cage in one piece", function()
@@ -321,22 +270,12 @@ describe("KillerSudokuBoard", function()
             assert.is_true(b2:isGiven(sc.r, sc.c))
             assert.are.equal(b2.solution[sc.r][sc.c], b2.user[sc.r][sc.c])
         end)
-
-        -- Before the cap, Easy needed about 12 such steps, like Medium.
-        for _, case in ipairs({ { "easy", 3 }, { "medium", 8 } }) do
-            it(case[1] .. " grids need at most " .. case[2] .. " steps beyond singles", function()
-                for seed = 1, 8 do
-                    math.randomseed(seed)
-                    local b = KillerSudokuBoard:new()
-                    b:generate(case[1])
-                    local hard = hardSteps(b)
-                    assert.is_not_nil(hard)
-                    assert.is_true(hard <= case[2])
-                end
-            end)
-        end
     end)
 
+    -- 1.7.0 rewrote the cage-sum solver for speed (one cage mask instead of
+    -- a sorted table per cell and digit). It must explore exactly the same
+    -- search tree: the node budget decides which cage layout a seed ends up
+    -- with, so these are the counts the 1.6.0 solver gave on three layouts.
     describe("cage-sum solver", function()
         local LAYOUTS = {
             { label = "medium layout with two solutions",
@@ -389,17 +328,5 @@ describe("KillerSudokuBoard", function()
                 assert.are.equal(lay.nodes, nodes)
             end)
         end
-
-        it("generates Hard and Expert grids quickly (1.6.0 took seconds each)", function()
-            local t0 = os.clock()
-            for seed = 1, 3 do
-                math.randomseed(seed)
-                KillerSudokuBoard:new():generate("hard")
-                KillerSudokuBoard:new():generate("expert")
-            end
-            -- Generous: about 0.1 s under LuaJIT and 6 s under busted's Lua
-            -- 5.5 with the bit shim; 1.6.0 needed ~18 s under LuaJIT alone.
-            assert.is_true(os.clock() - t0 < 30)
-        end)
     end)
 end)

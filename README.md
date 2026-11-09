@@ -13,7 +13,7 @@ Standard Sudoku rules (fill 1–9; no repeats in rows, columns, or 3×3 boxes) p
 ## Features
 
 - **Four difficulty levels** — Easy, Medium, Hard and Expert
-- **Hint** — two taps: the first says which cell is about to give, the second fills it. Works on Easy and Medium, which are now solvable by deduction alone; Hard and Expert stay genre-pure (no given digits) and the cages alone do not decide them, so there it says so rather than guessing
+- **Hint** — two taps: the first says which cell is about to give, the second fills it. Works on every level, since every grid is solvable by deduction alone
 - **Cage highlighting** — tapping a caged cell highlights the whole cage
 - **Note mode** — pencil in candidate digits
 - **Check** — highlights incorrect cells
@@ -42,14 +42,23 @@ Standard Sudoku rules (fill 1–9; no repeats in rows, columns, or 3×3 boxes) p
 | Change difficulty | Tap **Difficulty** |
 | Show rules | Tap **Rules** |
 
-## Known limitations
+## How the levels differ
 
-Easy and Medium puzzles are always solvable by deduction alone (no
-guessing): the generator adds given digits until they are. It also caps how
-much cage reasoning they ask for — working out which digits fit a cage, or
-the 45 rule: at most 3 such steps on Easy, 8 on Medium, the rest is plain
-singles. Hard and Expert carry no given digits, as in a classic Killer
-Sudoku, and the cages alone do not always decide them.
+Every grid has one solution and is solvable by deduction alone (no
+guessing): the generator adds given digits until it is. It also caps how
+much cage reasoning a grid asks for — working out which digits fit a cage,
+or the 45 rule — and the rest is plain singles:
+
+| Level | Largest cage | Cage reasoning steps (at most) | Given digits (about) |
+|---|---|---|---|
+| Easy | 3 cells | 3 | 22 |
+| Medium | 5 cells | 8 | 20 |
+| Hard | 5 cells | 16 | 17 |
+| Expert | 5 cells | 24 | 14 |
+
+Unlike a book Killer, Hard and Expert show a few given digits: random cages
+alone almost never decide the grid, so without them these levels needed
+guessing and some grids had two solutions.
 
 ## License
 

@@ -35,23 +35,23 @@ local DEFAULT_DIFFICULTY = "medium"
 local CAGE_COUNT_RANGES = {
     easy   = { min = 28, max = 32 },
     medium = { min = 22, max = 27 },
-    hard   = { min = 16, max = 21 },
-    expert = { min = 12, max = 16 },
+    hard   = { min = 20, max = 25 },
+    expert = { min = 18, max = 22 },
 }
 
 local CAGE_MAX_SIZE = {
     easy   = 3,
     medium = 5,
-    hard   = 6,
-    expert = 7,
+    hard   = 5,
+    expert = 5,
 }
 
 -- A "true" Killer Sudoku (0 given digits, purely random cage growth) is only
 -- solvable by deduction when the cage geometry happens to enable techniques
 -- like the 45-rule -- random growth rarely produces that by luck (empirically
 -- near 0% of the time). Easy and Medium therefore get a handful of deliberate
--- single-cell "given" cages to bootstrap deduction; Hard/Expert stay
--- genre-pure (0 givens, guessing expected) with unchanged behavior.
+-- single-cell "given" cages up front to bootstrap deduction; Hard/Expert
+-- start with none and get only what ensureDeducible (below) adds.
 local GIVEN_COUNT_RANGES = {
     easy   = { min = 10, max = 14 },
     medium = { min = 12, max = 16 },
@@ -879,12 +879,10 @@ end
 -- could not resolve in reading order -- rather than a random one, so the
 -- givens land where the deduction actually stalls.
 --
--- Only Easy and Medium go through this. Hard and Expert are deliberately
--- genre-pure: a real Killer Sudoku carries no given digits at all, the cages
--- say everything, and test_board_spec.lua pins that. Adding the givens they
--- would need to become deducible would turn them into a different puzzle. They
--- keep their cage geometry, and the Hint button simply stops when the cages
--- stop deciding -- see the note in README.md.
+-- Every level goes through this. Up to 1.9.3 Hard and Expert did not, to
+-- stay genre-pure like a book Killer (no given digits): they needed guessing
+-- and some grids had two solutions, so they now get the few givens their
+-- cages cannot do without (see HARD_STEP_BUDGET and STALL_BATCH).
 local function startingGrid(cages, solution, n)
     local grid = emptyGrid(n)
     for _, cage in ipairs(cages) do
@@ -916,11 +914,27 @@ end
 -- steps the solver may take, with nothing above locked candidates / pairs;
 -- past the cap, the grid counts as stuck and gets one more given, exactly as
 -- when it cannot be deduced at all.
+--
+-- Hard and Expert used to be dealt with no given digit at all, as in a book
+-- Killer: but random cages alone almost never decide the grid, so those
+-- grids needed guessing and some even had two solutions (2 of 8 Hard grids
+-- measured 2026-11-09). They now go through the same pass with a larger
+-- budget, so they get only the givens the cages cannot do without: about 17
+-- on Hard and 15 on Expert, against 20 on Medium (30 grids each).
 local DEDUCTION_TIER = logic_solver.TIER.LOCKED
 local HARD_STEP_BUDGET = {
     easy   = 3,
     medium = 8,
+    hard   = 16,
+    expert = 24,
 }
+
+-- Hard and Expert stall early, with most of the grid open, and one given per
+-- solve made their generation take seconds on a Kobo. When the solver stalls
+-- there, the given goes into the largest cage (it narrows the most), plus one
+-- more in another cage for every STALL_BATCH cells still open. Easy and Medium
+-- keep one given per solve, so their grids are unchanged.
+local STALL_BATCH = { hard = 10, expert = 10 }
 local SIMPLE_STEPS = { naked_single = true, hidden_single = true, cage_last_cell = true }
 
 -- Solve from `grid` within the level's tier and budget. Returns whether it
@@ -939,16 +953,16 @@ local function deduceWithinBudget(grid, cages, n, box_rows, box_cols, budget)
     for _, step in ipairs(res.steps) do
         if not SIMPLE_STEPS[step.technique] then
             hard = hard + 1
-            if hard > budget then return false, reached, step end
+            if hard > budget then return false, reached, step, hard - 1 end
         end
         if step.placements then
             for _, p in ipairs(step.placements) do reached[p.r][p.c] = p.digit end
         end
     end
-    return res.solved, reached
+    return res.solved, reached, nil, hard
 end
 
-local function ensureDeducible(solution, cages, cell_cage, n, box_rows, box_cols, budget, on_progress)
+local function ensureDeducible(solution, cages, cell_cage, n, box_rows, box_cols, budget, batch, on_progress)
     -- Each pass either finishes or adds one given, so the work is bounded by
     -- the number of cells; report against that so the progress bar keeps
     -- moving through what is the slowest part of generating a killer grid.
@@ -960,9 +974,11 @@ local function ensureDeducible(solution, cages, cell_cage, n, box_rows, box_cols
         local solved, reached, unaffordable = deduceWithinBudget(grid, cages, n, box_rows, box_cols, budget)
         if solved then break end
 
-        -- A cell of the step over budget; otherwise (the solver stalled) the
-        -- first unresolved cell in reading order: where the deduction stopped.
-        -- Reading order alone piled the givens into the top rows.
+        -- A cell of the step over budget; otherwise (the solver stalled) a cell
+        -- of the largest open cage on Hard/Expert (with a few more givens in
+        -- other cages, see STALL_BATCH), or the first unresolved cell in
+        -- reading order on Easy/Medium: where the deduction stopped. Reading
+        -- order alone piled the givens into the top rows.
         -- Only a cell whose removal leaves its cage in one piece: 1.9.0 split
         -- the middle of a cage, leaving two parts under one sum.
         local function splittable(r, c)
@@ -996,6 +1012,22 @@ local function ensureDeducible(solution, cages, cell_cage, n, box_rows, box_cols
                 pick = { r = cell.r, c = cell.c } break
             end
         end
+        if not pick and batch then
+            local best, best_size, count = nil, -1, 0
+            for r = 1, n do
+                for c = 1, n do
+                    if reached[r][c] == 0 and grid[r][c] == 0 and splittable(r, c) then
+                        local size = #cages[cell_cage[r][c]].cells
+                        if size > best_size then best, best_size, count = { r = r, c = c }, size, 1
+                        elseif size == best_size then
+                            count = count + 1
+                            if math.random(count) == 1 then best = { r = r, c = c } end
+                        end
+                    end
+                end
+            end
+            pick = best
+        end
         for r = 1, n do
             if pick then break end
             for c = 1, n do
@@ -1007,23 +1039,47 @@ local function ensureDeducible(solution, cages, cell_cage, n, box_rows, box_cols
         end
         if not pick then break end
 
-        -- Split it out of its cage into a 1-cell cage, moving its share of the
-        -- sum with it so both cages stay consistent.
-        local parent = cages[cell_cage[pick.r][pick.c]]
-        if not parent or #parent.cells <= 1 then break end
-        local value = solution[pick.r][pick.c]
-        for i, cell in ipairs(parent.cells) do
-            if cell.r == pick.r and cell.c == pick.c then table.remove(parent.cells, i) break end
+        local picks = { pick }
+        if not unaffordable and batch then
+            local unresolved = 0
+            for r = 1, n do for c = 1, n do if reached[r][c] == 0 then unresolved = unresolved + 1 end end end
+            local extra = math.floor(unresolved / batch) - 1
+            local used_cage = { [cell_cage[pick.r][pick.c]] = true }
+            local cand = {}
+            for r = 1, n do for c = 1, n do
+                if reached[r][c] == 0 and grid[r][c] == 0 and not used_cage[cell_cage[r][c]] and splittable(r, c) then
+                    cand[#cand + 1] = { r = r, c = c }
+                end
+            end end
+            while extra > 0 and #cand > 0 do
+                local i = math.random(#cand)
+                local cnd = table.remove(cand, i)
+                if not used_cage[cell_cage[cnd.r][cnd.c]] then
+                    used_cage[cell_cage[cnd.r][cnd.c]] = true
+                    picks[#picks + 1] = cnd
+                    extra = extra - 1
+                end
+            end
         end
-        parent.sum = parent.sum - value
-        cages[#cages + 1] = {
-            id       = #cages + 1,
-            cells    = { { r = pick.r, c = pick.c } },
-            sum      = value,
-            is_given = true,
-        }
-        cell_cage = rebuildCellCage(cages, n)
-        added = added + 1
+        for _, pick in ipairs(picks) do
+            -- Split it out of its cage into a 1-cell cage, moving its share of the
+            -- sum with it so both cages stay consistent.
+            local parent = cages[cell_cage[pick.r][pick.c]]
+            if not parent or #parent.cells <= 1 then break end
+            local value = solution[pick.r][pick.c]
+            for i, cell in ipairs(parent.cells) do
+                if cell.r == pick.r and cell.c == pick.c then table.remove(parent.cells, i) break end
+            end
+            parent.sum = parent.sum - value
+            cages[#cages + 1] = {
+                id       = #cages + 1,
+                cells    = { { r = pick.r, c = pick.c } },
+                sum      = value,
+                is_given = true,
+            }
+            cell_cage = rebuildCellCage(cages, n)
+            added = added + 1
+        end
     end
     if on_progress then on_progress(1, 1) end
     return cages, cell_cage
@@ -1036,7 +1092,8 @@ function KillerSudokuBoard:generate(difficulty, randInt, on_progress)
     local cages, cell_cage = generateVerifiedCages(solution, self.difficulty, n, box_rows, box_cols, on_progress)
     local budget = HARD_STEP_BUDGET[self.difficulty]
     if budget then
-        cages, cell_cage = ensureDeducible(solution, cages, cell_cage, n, box_rows, box_cols, budget, on_progress)
+        cages, cell_cage = ensureDeducible(solution, cages, cell_cage, n, box_rows, box_cols, budget,
+            STALL_BATCH[self.difficulty], on_progress)
     end
     self.solution        = solution
     self.cages           = cages
@@ -1157,4 +1214,5 @@ return {
     _countCageSolutions = countCageSolutions,
     _generateCages      = generateCages,
     _isHumanSolvable    = isHumanSolvable,
+    _HARD_STEP_BUDGET   = HARD_STEP_BUDGET,
 }

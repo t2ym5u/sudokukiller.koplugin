@@ -1,5 +1,4 @@
 return {
-    ["%1 (%2 cages)"] = { fr = "%1 (%2 cages)", es = "%1 (%2 jaulas)", de = "%1 (%2 Käfige)" },
     ["%1 fits in only one cell of column %2."] = { fr = "Le %1 ne peut aller que dans une seule case de la colonne %2.", es = "El %1 solo cabe en una casilla de la columna %2.", de = "Die %1 passt nur in eine Zelle von Spalte %2." },
     ["%1 fits in only one cell of row %2."] = { fr = "Le %1 ne peut aller que dans une seule case de la ligne %2.", es = "El %1 solo cabe en una casilla de la fila %2.", de = "Die %1 passt nur in eine Zelle von Zeile %2." },
     ["%1 fits in only one cell of that box."] = { fr = "Le %1 ne peut aller que dans une seule case de ce bloc.", es = "El %1 solo cabe en una casilla de esa caja.", de = "Die %1 passt nur in eine Zelle dieses Blocks." },

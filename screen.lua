@@ -30,13 +30,6 @@ local generateWithProgress = common.generateWithProgress
 
 local DeviceScreen = Device.screen
 
-local DIFFICULTY_CAGE_HINT = {
-    easy   = "28-32",
-    medium = "22-27",
-    hard   = "16-21",
-    expert = "12-16",
-}
-
 -- ---------------------------------------------------------------------------
 -- KillerSudokuScreen
 -- ---------------------------------------------------------------------------
@@ -97,9 +90,9 @@ end
 
 function KillerSudokuScreen:getDifficultyButtonText()
     local diff  = self.board.difficulty
-    local label = DIFFICULTY_LABELS[diff] or diff
-    local hint  = DIFFICULTY_CAGE_HINT[diff] or ""
-    return T(_("Difficulty: %1"), T("%1 (%2)", label, hint))
+    -- No cage count next to the level any more: since every level gets the
+    -- givens its cages need, the counts overlap and no longer tell levels apart.
+    return T(_("Difficulty: %1"), DIFFICULTY_LABELS[diff] or diff)
 end
 
 -- Status extra: progress of the cage under the selection.
@@ -137,9 +130,8 @@ function KillerSudokuScreen:openDifficultyMenu()
     end
     local items = {}
     for __, level in ipairs(DIFFICULTY_ORDER) do
-        local hint = DIFFICULTY_CAGE_HINT[level] or ""
         items[#items + 1] = {
-            text     = T(_("%1 (%2 cages)"), DIFFICULTY_LABELS[level] or level, hint),
+            text     = DIFFICULTY_LABELS[level] or level,
             checked  = (level == self.board.difficulty),
             callback = function() return selectDifficulty(level) end,
         }

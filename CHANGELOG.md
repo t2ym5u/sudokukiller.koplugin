@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.10.0] - 2026-11-09
+
+### Changed
+- Hard and Expert no longer need guessing, and every grid has exactly one
+  solution. They used to carry no given digit at all, as in a book Killer,
+  but random cages alone almost never decide the grid: some grids even had
+  two solutions, and the right one was refused. They now get the few given
+  digits the cages cannot do without (about 17 on Hard and 14 on Expert,
+  against 20 on Medium) and ask for more cage reasoning (up to 16 and 24
+  steps, against 8). Their cages are now at most 5 cells (6 and 7 before).
+  Easy and Medium grids are unchanged.
+- The Hint now works on every level.
+- The difficulty menu no longer shows a cage count next to each level:
+  with the given digits, the counts overlap and no longer tell levels apart.
+
 ## [1.9.3] - 2026-11-07
 
 ### Changed
