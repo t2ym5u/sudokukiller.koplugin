@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.10.1] - 2026-11-24
+
+### Changed
+- Picks up sudoku-common 1.11.0: with the Dashboard installed, the title
+  bar's close icon becomes a house that goes back to it.
+
 ## [1.10.0] - 2026-11-09
 
 ### Changed
