@@ -137,11 +137,44 @@ function KillerSudoku:getBoard()
     return self.board
 end
 
+-- Settings writes wait a few seconds, once for any number of moves: a write
+-- dumps the whole file with an fsync (13-46 ms of CPU a move on a Kobo,
+-- measured 2026-11-24). Written at once on close, on uninstall, and on
+-- KOReader's FlushSettings (suspend, power-off, exit). See game-common's
+-- plugin_base.lua, "Writing the settings file".
+local FLUSH_DELAY = 3
+
+function KillerSudoku:_requestFlush()
+    self._flush_dirty = true
+    if self._flush_pending then return end
+    self._flush_pending = function()
+        self._flush_pending = nil
+        self:flushSettings()
+    end
+    UIManager:scheduleIn(FLUSH_DELAY, self._flush_pending)
+end
+
+function KillerSudoku:flushSettings()
+    if self._flush_pending then
+        UIManager:unschedule(self._flush_pending)
+        self._flush_pending = nil
+    end
+    if self._flush_dirty and self.settings then
+        self._flush_dirty = false
+        self.settings:flush()
+    end
+end
+
+-- Returns nothing, so the event goes on to the other modules.
+function KillerSudoku:onFlushSettings()
+    self:flushSettings()
+end
+
 function KillerSudoku:saveState()
     if not self.board then return end
     self:ensureSettings()
     self.settings:saveSetting("state", self.board:serialize())
-    self.settings:flush()
+    self:_requestFlush()
 end
 
 function KillerSudoku:showGame()
@@ -165,6 +198,7 @@ function KillerSudoku:onScreenClosed()
             time_played = (cur.time_played or 0) + elapsed,
         })
     end
+    self:flushSettings()
     self.screen = nil
 end
 
@@ -172,6 +206,7 @@ end
 -- PluginLoader removes self.settings_file itself; what is left is the
 -- open game screen and this game's row in the shared game_stats.lua.
 function KillerSudoku:stopPlugin()
+    self:flushSettings()  -- or a pending write recreates the deleted file
     if self.screen then
         UIManager:close(self.screen)
         self.screen = nil
